@@ -39,7 +39,9 @@ public struct TrayHistory: Codable {
     public init() {}
 
     @discardableResult public mutating func insert(_ capture: Capture) -> Capture? {
-        guard !items.contains(where: { $0.url == capture.url }) else { return nil }
+        guard !items.contains(where: { $0.id == capture.id }) else { return nil }
+        // The watcher assigns a new ID to each file version, even at the same URL.
+        remove(Set(items.filter { $0.url == capture.url }.map(\.id)))
         let evicted = slots[writePointer].flatMap { id in items.first { $0.id == id } }
         if let evicted { items.removeAll { $0.id == evicted.id } }
         items.insert(capture, at: 0)

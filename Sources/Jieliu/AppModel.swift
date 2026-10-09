@@ -60,8 +60,9 @@ final class AppModel: ObservableObject {
     }
 
     func receive(_ capture: Capture) {
+        guard !history.items.contains(where: { $0.id == capture.id }) else { return }
         let previous = history.insert(capture)
-        if let previous { selection.remove(previous.id) }
+        selection.formIntersection(Set(history.items.map(\.id)))
         persist(); onCapture?(capture, previous); onChange?()
         let live = Set(history.items.map(\.id))
         images = images.filter { live.contains($0.key) }

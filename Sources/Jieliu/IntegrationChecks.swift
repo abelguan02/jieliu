@@ -27,7 +27,7 @@ enum IntegrationChecks {
         try tag(capture,key:"kMDItemScreenCaptureGlobalRect",value:[-1440,32,640,400])
         let deadline=Date().addingTimeInterval(6)
         while captures.isEmpty && Date()<deadline { spin(0.1) }
-        spin(0.6); watcher.stop()
+        spin(0.6)
         precondition(errors.isEmpty,"Watcher errors: \(errors)")
         precondition(captures.count == 1,"Expected exactly one capture, got \(captures.count)")
         precondition(captures[0].url.deletingLastPathComponent().resolvingSymlinksInPath().path == archive.resolvingSymlinksInPath().path,"Wrong archive: \(captures[0].url.path)")
@@ -37,6 +37,46 @@ enum IntegrationChecks {
         precondition(FileManager.default.fileExists(atPath:old.path),"Old screenshots must remain untouched")
         precondition(FileManager.default.fileExists(atPath:untagged.path),"Filename alone must never identify a screenshot")
         precondition(!FileManager.default.fileExists(atPath:capture.path))
+        // The source name becomes available again immediately after archiving.
+        try bytes.write(to:capture); try tag(capture,key:"kMDItemIsScreenCapture",value:true)
+        let reusedDeadline=Date().addingTimeInterval(6)
+        while captures.count<2 && Date()<reusedDeadline { spin(0.1) }
+        precondition(captures.count == 2,"A new file at the archived source path must be collected")
+        precondition(captures[0].url != captures[1].url,"Same-name captures must not overwrite each other")
+        precondition(!FileManager.default.fileExists(atPath:capture.path))
+        let firstBytes=try Data(contentsOf:captures[0].url)
+        let secondBytes=try Data(contentsOf:captures[1].url)
+        precondition(firstBytes == bytes && secondBytes == bytes)
+        // Renaming an already collected file is not a new capture.
+        let renamed=archive.appendingPathComponent("renamed.png")
+        try FileManager.default.moveItem(at:captures[1].url,to:renamed)
+        spin(0.6)
+        precondition(captures.count == 2,"Archive events and renames must not duplicate captures")
+        // An existing source path can also be replaced by an atomic save.
+        let changed=DemoSupport.fixture(1)
+        try changed.write(to:old,options:.atomic); try tag(old,key:"kMDItemIsScreenCapture",value:true)
+        let replacedDeadline=Date().addingTimeInterval(6)
+        while captures.count<3 && Date()<replacedDeadline { spin(0.1) }
+        spin(0.6)
+        precondition(captures.count == 3,"An updated file version must be collected exactly once")
+        let replacedBytes=try Data(contentsOf:captures[2].url)
+        precondition(replacedBytes == changed)
+        precondition(errors.isEmpty)
+        let archivedURL=captures[2].url
+        try bytes.write(to:archivedURL,options:.atomic)
+        try tag(archivedURL,key:"kMDItemIsScreenCapture",value:true)
+        let archiveDeadline=Date().addingTimeInterval(6)
+        while captures.count<4 && Date()<archiveDeadline { spin(0.1) }
+        spin(0.6); watcher.stop()
+        precondition(captures.count == 4 && captures[3].url == archivedURL)
+        let model=AppModel(demo:true)
+        model.receive(captures[2]); model.selection=[captures[2].id]
+        model.receive(captures[3])
+        precondition(model.history.items.contains { $0.id == captures[3].id })
+        precondition(!model.history.items.contains { $0.id == captures[2].id })
+        precondition(model.selection.isEmpty)
+        precondition(errors.isEmpty)
+        print("PASS: source and archive path reuse, collision preservation, atomic replacement, archive event and rename deduplication")
         let provider=CapturePasteboard(url:captures[0].url), item=provider.item()
         provider.pasteboard(nil,item:item,provideDataForType:.png)
         precondition(item.data(forType:.png) == bytes,"Drag must preserve original PNG pixels")

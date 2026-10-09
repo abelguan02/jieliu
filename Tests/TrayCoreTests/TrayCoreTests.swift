@@ -70,5 +70,12 @@ func XCTAssertNil<T>(_ value: T?) { precondition(value == nil) }
         history.insert(s); history.insert(s)
         XCTAssertEqual(history.total, 1)
         XCTAssertEqual(history.writePointer, 1)
+        let replacement=shot(0)
+        history.insert(replacement)
+        XCTAssertEqual(history.items.map(\.id),[replacement.id])
+        XCTAssertEqual(history.total,2)
+        XCTAssertEqual(history.writePointer,2)
+        XCTAssertNil(history.slots[0])
+        XCTAssertEqual(history.slots[1],replacement.id)
     }
 }

@@ -12,8 +12,21 @@ final class ScreenshotWatcher {
     private var sources: [DispatchSourceFileSystemObject] = []
     private var timer: DispatchSourceTimer?
     private var observers: [NSObjectProtocol] = []
-    private var known = Set<URL>()
-    private var pending: [URL: (first: Date, size: Int, stable: Int)] = [:]
+    // Paths can be reused after a capture is moved. Track the file instance and
+    // its content version instead; record both sides of cross-volume moves.
+    private struct FileVersion:Hashable {
+        let device:dev_t, inode:ino_t, size:off_t
+        let birthSeconds:Int, birthNanos:Int, modifiedSeconds:Int, modifiedNanos:Int
+        init?(_ url:URL) {
+            var info=stat()
+            guard lstat(url.path,&info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return nil }
+            device=info.st_dev; inode=info.st_ino; size=info.st_size
+            birthSeconds=info.st_birthtimespec.tv_sec; birthNanos=info.st_birthtimespec.tv_nsec
+            modifiedSeconds=info.st_mtimespec.tv_sec; modifiedNanos=info.st_mtimespec.tv_nsec
+        }
+    }
+    private var known = Set<FileVersion>()
+    private var pending: [URL: (first: Date, version: FileVersion, stable: Int)] = [:]
     private var directories: [URL] = []
     private var destination: URL
     private let startDate = Date()
@@ -70,16 +83,18 @@ final class ScreenshotWatcher {
         do {
             let urls = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])
             for url in urls {
-                if baseline { known.insert(url.standardizedFileURL) } else { enqueue(url) }
+                if baseline {
+                    if let version=FileVersion(url) { known.insert(version) }
+                } else { enqueue(url) }
             }
         } catch { report("无法读取 \(directory.path)：\(error.localizedDescription)") }
     }
 
     private func enqueue(_ url: URL) {
         let url = url.standardizedFileURL
-        guard !known.contains(url), pending[url] == nil else { return }
         guard ["png", "jpg", "jpeg", "heic", "tiff", "tif", "pdf"].contains(url.pathExtension.lowercased()) else { return }
-        pending[url] = (Date(), -1, 0)
+        guard let version=FileVersion(url),!known.contains(version),pending[url] == nil else { return }
+        pending[url] = (Date(), version, 0)
     }
 
     private func drain() {
@@ -90,20 +105,27 @@ final class ScreenshotWatcher {
         }
         for url in ordered {
             guard var state = pending[url] else { continue }
-            if Date().timeIntervalSince(state.first) > 30 { pending[url] = nil; known.insert(url); continue }
+            guard let version=FileVersion(url) else { pending[url]=nil; continue }
+            if known.contains(version) { pending[url]=nil; continue }
+            if version != state.version { state=(Date(),version,0) }
+            else { state.stable += 1 }
+            if Date().timeIntervalSince(state.first) > 30 { pending[url] = nil; continue }
             guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                   let size = attrs[.size] as? Int, size > 0 else { continue }
-            state.stable = size == state.size ? state.stable + 1 : 0
-            state.size = size; pending[url] = state
+            pending[url] = state
             guard state.stable >= 1, CaptureFiles.isScreenshot(url) else { continue }
             guard let image = NSImage(contentsOf: url), image.isValid else { continue }
             let rep = image.representations.max { $0.pixelsWide < $1.pixelsWide }
             let width = rep?.pixelsWide ?? Int(image.size.width)
             let height = rep?.pixelsHigh ?? Int(image.size.height)
             let rect = CaptureFiles.captureRect(url)
+            // Do not archive a replacement that arrived while decoding the image.
+            guard FileVersion(url) == version else { continue }
             do {
                 let archived = try CaptureFiles.archive(url, into: destination)
-                known.insert(url); known.insert(archived.standardizedFileURL); pending[url] = nil
+                known.insert(version)
+                if let archivedVersion=FileVersion(archived) { known.insert(archivedVersion) }
+                pending[url] = nil
                 let capture = Capture(url: archived, date: attrs[.creationDate] as? Date ?? Date(), width: width, height: height, rect: rect)
                 DispatchQueue.main.async { self.onCapture?(capture) }
             } catch { report("截图归档失败，原文件保留：\(error.localizedDescription)") }
