@@ -108,7 +108,7 @@ final class TrayController {
         let end=CGRect(x:target.minX*scale,y:target.minY*scale,width:target.width*scale,height:target.height*scale)
         let fitted=model.concept == .buffer ? Ink.fit(image.size,in:end) : end
         let start=source ?? CGRect(x:screens[index].frame.width/2-90,y:max(80,view.top+20),width:180,height:112)
-        if source == nil { view.toast("位置元数据不可用，已收纳截图") }
+        if source == nil { view.toast(model.text("位置元数据不可用，已收纳截图","Screenshot collected; position unavailable")) }
         effects[capture.id]=EffectWindow(screen:screens[index],image:image,source:start,target:fitted,concept:model.concept,top:view.top*scale,onProgress:{ [weak view] in view?.landingProgress=$0 }) { [weak self,weak view] in
             guard let self else { return }
             view?.landing=nil; view?.arrived[capture.id]=CACurrentMediaTime(); view?.needsDisplay=true; self.effects[capture.id]=nil; self.animating=false

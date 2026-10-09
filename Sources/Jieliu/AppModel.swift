@@ -2,6 +2,12 @@ import AppKit
 import SwiftUI
 import TrayCore
 
+enum AppLanguage:String,CaseIterable,Identifiable {
+    case chinese = "zh-Hans", english = "en"
+    var id:String { rawValue }
+    var title:String { self == .chinese ? "中文" : "English" }
+}
+
 enum Concept: String, CaseIterable, Identifiable {
     case ruler = "A", buffer = "B", layers = "C"
     var id: String { rawValue }
@@ -9,6 +15,9 @@ enum Concept: String, CaseIterable, Identifiable {
 }
 
 final class AppModel: ObservableObject {
+    @Published var language:AppLanguage {
+        didSet { defaults.set(language.rawValue,forKey:"language"); onChange?(); onLanguageChange?() }
+    }
     @Published var history = TrayHistory()
     @Published var concept: Concept { didSet { defaults.set(concept.rawValue, forKey: "concept"); onChange?() } }
     @Published var autoHide: Bool { didSet { defaults.set(autoHide, forKey: "autoHide") } }
@@ -19,14 +28,16 @@ final class AppModel: ObservableObject {
     var onChange: (() -> Void)?
     var onCapture: ((Capture, Capture?) -> Void)?
     var onRestart: (() -> Void)?
+    var onLanguageChange:(()->Void)?
     let defaults: UserDefaults
     let historyURL: URL
     let isDemo: Bool
     private var images: [UUID: NSImage] = [:]
 
-    init(demo: Bool = false) {
+    init(demo: Bool = false, preferences:UserDefaults? = nil) {
         isDemo = demo
-        defaults = demo ? UserDefaults(suiteName: "app.jieliu.preview")! : .standard
+        defaults = preferences ?? (demo ? UserDefaults(suiteName: "app.jieliu.preview")! : .standard)
+        language = AppLanguage(rawValue:defaults.string(forKey:"language") ?? "zh-Hans") ?? .chinese
         concept = Concept(rawValue: defaults.string(forKey: "concept") ?? "B") ?? .buffer
         autoHide = defaults.object(forKey: "autoHide") as? Bool ?? true
         sound = defaults.bool(forKey: "sound")
@@ -34,7 +45,7 @@ final class AppModel: ObservableObject {
         historyURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Jieliu/history.json")
         if !demo, FileManager.default.fileExists(atPath: historyURL.path) {
             do { history = try TrayHistory.load(from: historyURL) }
-            catch { lastError = "历史记录无法读取：\(error.localizedDescription)" }
+            catch { lastError = text("历史记录无法读取：","Could not read history: ")+error.localizedDescription }
         }
     }
 
@@ -66,7 +77,7 @@ final class AppModel: ObservableObject {
     func persist() {
         guard !isDemo else { return }
         do { try history.save(to: historyURL) }
-        catch { lastError = "历史记录保存失败：\(error.localizedDescription)" }
+        catch { lastError = text("历史记录保存失败：","Could not save history: ")+error.localizedDescription }
     }
     func openFolder() {
         do { try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true); NSWorkspace.shared.open(destination) }
@@ -75,9 +86,17 @@ final class AppModel: ObservableObject {
     func chooseDestination() {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
         panel.canCreateDirectories = true; panel.directoryURL = destination
-        panel.prompt = "用作截图文件夹"
+        panel.prompt = text("用作截图文件夹","Use screenshot folder")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         destination = url; defaults.set(url.path, forKey: "destination"); onRestart?(); onChange?()
     }
     var folderLabel: String { destination.path.replacingOccurrences(of: NSHomeDirectory(), with: "~") }
+    func text(_ chinese:String,_ english:String)->String { language == .chinese ? chinese : english }
+    func title(_ concept:Concept)->String {
+        switch concept {
+        case .ruler: return text("标尺","Ruler")
+        case .buffer: return text("帧缓冲","Buffer")
+        case .layers: return text("图层","Layers")
+        }
+    }
 }

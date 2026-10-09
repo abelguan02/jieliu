@@ -3,6 +3,10 @@ import AppKit
 enum Ink {
     static let guide = color(0x30d5f7), red = color(0xff3b5c), green = color(0x2be38c), blue = color(0x3d7bff)
     static let foreground = color(0xe8eaee), muted = color(0x8b919c)
+    static func textWidth(_ string:String,size:CGFloat=11)->CGFloat {
+        let font=NSFont(name:"GeistMono-Medium",size:size) ?? NSFont.monospacedSystemFont(ofSize:size,weight:.medium)
+        return ceil((string as NSString).size(withAttributes:[.font:font]).width)
+    }
     static func color(_ hex: Int, _ alpha: CGFloat = 1) -> NSColor {
         NSColor(srgbRed: CGFloat((hex >> 16) & 255)/255, green: CGFloat((hex >> 8) & 255)/255, blue: CGFloat(hex & 255)/255, alpha: alpha)
     }

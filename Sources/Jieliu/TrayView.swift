@@ -31,7 +31,7 @@ final class TrayView: NSView, NSDraggingSource {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
-    init(model: AppModel) { self.model = model; super.init(frame: .zero); setAccessibilityLabel("截图收纳托盘") }
+    init(model: AppModel) { self.model = model; super.init(frame: .zero); setAccessibilityLabel(model.text("截图收纳托盘","Screenshot tray")) }
     required init?(coder: NSCoder) { fatalError() }
 
     func tick() {
@@ -87,7 +87,7 @@ final class TrayView: NSView, NSDraggingSource {
             }
         }
         if messageUntil > CACurrentMediaTime() {
-            let width = CGFloat(message.count)*12+24
+            let width = Ink.textWidth(message)+24
             Ink.box(CGRect(x:center-width/2,y:top+178,width:width,height:26),color:Ink.color(0x14161b,0.95),radius:8)
             Ink.text(message,center-width/2+12,top+184,size:11)
         }
@@ -103,7 +103,7 @@ final class TrayView: NSView, NSDraggingSource {
 
     private func drawFolder(_ x: CGFloat, _ y: CGFloat, prefix: String = "") {
         let label = prefix + model.folderLabel + "  \(model.history.total)"
-        let width = CGFloat(label.count)*6.6+18
+        let width = Ink.textWidth(label,size:10.5)+18
         folderRect = CGRect(x:x-width,y:y,width:width,height:20)
         Ink.box(folderRect,color:.white.withAlphaComponent(0.08),radius:6,stroke:.white.withAlphaComponent(0.14))
         Ink.text(label,folderRect.minX+8,y+3,size:10.5)
@@ -116,8 +116,8 @@ final class TrayView: NSView, NSDraggingSource {
         c.clip(to:CGRect(x:center-mix(196,1000,openness)/2,y:0,width:mix(196,1000,openness),height:mix(top,top+134,openness)))
         c.setAlpha(clamp((openness-0.3)/0.7))
         let x = center-474
-        Ink.text("SCREENSHOT BUFFER · \(model.history.items.count)/8",x,10,size:11,color:Ink.color(0x7d838d))
-        drawFolder(center+474,7,prefix:"FLUSH → ")
+        Ink.text(model.text("截图缓冲区","SCREENSHOT BUFFER")+" · \(model.history.items.count)/8",x,10,size:11,color:Ink.color(0x7d838d))
+        drawFolder(center+474,7,prefix:model.text("归档 → ","FLUSH → "))
         for index in 0..<8 {
             let left = x+CGFloat(index)*120, r = CGRect(x:left,y:top+10,width:108,height:68)
             let capture = model.history.slots[index].flatMap { id in model.history.items.first { $0.id == id } }
@@ -126,12 +126,12 @@ final class TrayView: NSView, NSDraggingSource {
                 layout[capture.id] = r; orderedIDs.append(capture.id)
                 if capture.id != landing, let image = model.image(capture) { Ink.image(image,in:Ink.fit(image.size,in:r),alpha:dragging && model.selection.contains(capture.id) ? 0.3 : 1) }
                 if model.selection.contains(capture.id) { Ink.selection(r,time:CACurrentMediaTime()) }
-                Ink.text(capture.id == landing ? (landingProgress > 0.74 ? "WRITE" : "READ") : Ink.clock(capture.date),left+49,top+87,size:10.5,color:capture.id == landing ? Ink.green : Ink.color(0x6d727b))
+                Ink.text(capture.id == landing ? (landingProgress > 0.74 ? model.text("写入","WRITE") : model.text("读取","READ")) : Ink.clock(capture.date),left+49,top+87,size:10.5,color:capture.id == landing ? Ink.green : Ink.color(0x6d727b))
                 Ink.text(dimensions(capture),left,top+103,size:10.5,color:Ink.color(0x555a63))
             } else {
                 let border=NSBezierPath(roundedRect:r.insetBy(dx:0.5,dy:0.5),xRadius:4,yRadius:4)
                 border.setLineDash([3,3],count:2,phase:0); NSColor.white.withAlphaComponent(0.16).setStroke(); border.stroke()
-                Ink.text("—",left+98,top+87,size:10.5,color:Ink.color(0x6d727b)); Ink.text("空",left,top+103,size:10.5,color:Ink.color(0x555a63))
+                Ink.text("—",left+98,top+87,size:10.5,color:Ink.color(0x6d727b)); Ink.text(model.text("空","Empty"),left,top+103,size:10.5,color:Ink.color(0x555a63))
             }
             Ink.text(String(format:"0x%02X",index),left,top+87,size:10.5,color:Ink.color(0xcfd2d8))
             if index == model.history.writePointer && (Int(CACurrentMediaTime()*2)%2 == 0 || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) {
@@ -181,7 +181,7 @@ final class TrayView: NSView, NSDraggingSource {
         for (index,capture) in sorted where capture.id != hovered { drawLayer(capture,index:index,start:start,gap:gap) }
         if let hovered, let index=model.history.items.firstIndex(where:{$0.id == hovered}) { drawLayer(model.history.items[index],index:index,start:start,gap:gap) }
         if spread < 0.5 {
-            let label=model.history.items.first.map { "\(model.history.items.count) 个图层 · 最新 \(Ink.clock($0.date))" } ?? "没有图层"
+            let label=model.history.items.first.map { model.text("\(model.history.items.count) 个图层 · 最新 \(Ink.clock($0.date))","\(model.history.items.count) layers · Latest \(Ink.clock($0.date))") } ?? model.text("没有图层","No layers")
             Ink.text(label,center-CGFloat(label.count)*3.7,top+154,size:11)
         }
     }
@@ -198,7 +198,7 @@ final class TrayView: NSView, NSDraggingSource {
         if capture.id != landing { drawShot(capture,CGRect(x:-r.width/2,y:-r.height/2,width:r.width,height:r.height)) }
         c.restoreGState()
         if spread > 0.5 {
-            let label="截屏 " + Ink.clock(capture.date).replacingOccurrences(of:":",with:".")
+            let label=model.text("截屏 ","Capture ") + Ink.clock(capture.date).replacingOccurrences(of:":",with:".")
             Ink.box(CGRect(x:r.midX-65,y:top+142,width:130,height:20),color:Ink.color(0x0c0e12,0.85),radius:5)
             Ink.checker(CGRect(x:r.midX-59,y:top+148,width:8,height:8),cell:4)
             Ink.text(label,r.midX-45,top+146,size:10.5)
@@ -290,13 +290,13 @@ final class TrayView: NSView, NSDraggingSource {
     func draggingSession(_ session:NSDraggingSession,sourceOperationMaskFor context:NSDraggingContext)->NSDragOperation { .copy }
     func draggingSession(_ session:NSDraggingSession,endedAt screenPoint:NSPoint,operation:NSDragOperation) {
         dragging=false; needsDisplay=true; onInteraction?()
-        if operation.contains(.copy) { toast("已拷贝 \(model.selection.count) 张截图") }
+        if operation.contains(.copy) { toast(model.text("已拷贝 \(model.selection.count) 张截图","Copied \(model.selection.count) screenshots")) }
     }
     override func keyDown(with event:NSEvent) {
         onInteraction?()
         switch event.keyCode {
         case 49: if let id=model.history.items.first(where:{model.selection.contains($0.id)})?.id ?? hovered { onPreview?(id) }
-        case 51,117: let count=model.selection.count; model.removeSelection(); toast("已移出 \(count) 张，文件仍保留")
+        case 51,117: let count=model.selection.count; model.removeSelection(); toast(model.text("已移出 \(count) 张，文件仍保留","Removed \(count) from tray; files kept"))
         case 53: model.selection.removeAll(); window?.resignKey(); needsDisplay=true
         case 123,124:
             let ids=model.concept == .buffer ? model.history.slots.compactMap{$0} : model.history.items.map(\.id)
@@ -309,7 +309,7 @@ final class TrayView: NSView, NSDraggingSource {
             if event.modifierFlags.contains(.command),event.charactersIgnoringModifiers == "a" { model.selection=Set(model.history.items.map(\.id)); needsDisplay=true }
             else if event.modifierFlags.contains(.command),event.charactersIgnoringModifiers == "c" {
                 let urls=model.history.items.filter { model.selection.contains($0.id) }.map { $0.url as NSURL }
-                NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects(urls); toast("已拷贝 \(urls.count) 张截图")
+                NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects(urls); toast(model.text("已拷贝 \(urls.count) 张截图","Copied \(urls.count) screenshots"))
             } else if event.modifierFlags.intersection([.command,.control,.option]).isEmpty,let key=event.charactersIgnoringModifiers?.uppercased(),let concept=Concept(rawValue:key) { model.concept=concept }
             else { super.keyDown(with:event) }
         }
@@ -320,8 +320,8 @@ final class TrayView: NSView, NSDraggingSource {
             guard let r=layout[capture.id] else { return nil }
             let element=ShotAccessibility()
             element.setAccessibilityRole(.button)
-            element.setAccessibilityLabel("\(capture.url.lastPathComponent)，\(capture.width) 乘 \(capture.height) 像素")
-            element.setAccessibilityHelp("按下以选中，空格预览，Delete 从托盘移出并保留文件。")
+            element.setAccessibilityLabel(model.text("\(capture.url.lastPathComponent)，\(capture.width) 乘 \(capture.height) 像素","\(capture.url.lastPathComponent), \(capture.width) by \(capture.height) pixels"))
+            element.setAccessibilityHelp(model.text("按下以选中，空格预览，Delete 从托盘移出并保留文件。","Press to select, Space to preview, Delete to remove from the tray while keeping the file."))
             element.setAccessibilityParent(self)
             let local=CGRect(x:r.minX*scale,y:r.minY*scale,width:r.width*scale,height:r.height*scale)
             if let window { element.setAccessibilityFrame(window.convertToScreen(convert(local,to:nil))) }

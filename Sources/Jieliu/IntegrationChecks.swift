@@ -3,6 +3,7 @@ import TrayCore
 
 enum IntegrationChecks {
     static func run() throws {
+        checkLanguage()
         let root=FileManager.default.temporaryDirectory.appendingPathComponent("jieliu-check-"+UUID().uuidString)
         let source=root.appendingPathComponent("source"), archive=root.appendingPathComponent("archive")
         try FileManager.default.createDirectory(at:source,withIntermediateDirectories:true)
@@ -42,6 +43,26 @@ enum IntegrationChecks {
         try checkInteractions(captures[0])
         try checkPanelFocus()
         print("PASS: watcher, delayed metadata, source rectangle, archive, duplicate suppression, old-file baseline, filename false-positive rejection, original drag bytes")
+    }
+    static func checkLanguage() {
+        let suite="app.jieliu.language-check."+UUID().uuidString
+        let defaults=UserDefaults(suiteName:suite)!
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let model=AppModel(demo:true,preferences:defaults)
+        precondition(model.language == .chinese)
+        precondition(model.text("截图缓冲区","SCREENSHOT BUFFER") == "截图缓冲区")
+        var redraws=0,menuUpdates=0
+        model.onChange={redraws+=1}; model.onLanguageChange={menuUpdates+=1}
+        model.language = .english
+        precondition(model.text("截图缓冲区","SCREENSHOT BUFFER") == "SCREENSHOT BUFFER")
+        precondition(model.title(.layers) == "Layers")
+        precondition(redraws == 1 && menuUpdates == 1)
+        let restored=AppModel(demo:true,preferences:defaults)
+        precondition(restored.language == .english)
+        restored.language = .chinese
+        precondition(AppModel(demo:true,preferences:defaults).language == .chinese)
+        precondition(restored.title(.buffer) == "帧缓冲")
+        print("PASS: default Chinese, immediate language callbacks, English strings and preference restoration")
     }
     static func checkPanelFocus() throws {
         guard !NSScreen.screens.isEmpty else { throw NSError(domain:"Jieliu.Checks",code:1,userInfo:[NSLocalizedDescriptionKey:"No display available for panel focus check"]) }

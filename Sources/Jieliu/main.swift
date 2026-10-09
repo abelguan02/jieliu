@@ -12,6 +12,15 @@ final class AppDelegate:NSObject,NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification:Notification) {
         setupMenu()
         tray=TrayController(model:model)
+        model.onLanguageChange = { [weak self] in
+            guard let self else { return }
+            self.setupMenu()
+            self.settings?.title=self.model.defaults.bool(forKey:"onboarded") ? self.model.text("截留设置","Jieliu Settings") : self.model.text("欢迎使用截留","Welcome to Jieliu")
+            DispatchQueue.main.async { [weak self] in
+                guard let window=self?.settings,let view=window.contentView else { return }
+                view.layoutSubtreeIfNeeded(); window.setContentSize(view.fittingSize)
+            }
+        }
         model.onRestart = { [weak self] in self?.startWatching() }
         if model.isDemo { DemoSupport.populate(model); tray?.expand(); return }
         if !model.defaults.bool(forKey:"onboarded") { showSettings(onboarding:true) }
@@ -25,21 +34,21 @@ final class AppDelegate:NSObject,NSApplicationDelegate {
         self.watcher=watcher; watcher.start()
     }
     func setupMenu() {
-        let status=NSStatusBar.system.statusItem(withLength:NSStatusItem.squareLength)
-        status.button?.image=NSImage(systemSymbolName:"viewfinder",accessibilityDescription:"截留")
-        status.button?.toolTip="截留 · 截图收纳托盘"
+        let status=self.status ?? NSStatusBar.system.statusItem(withLength:NSStatusItem.squareLength)
+        status.button?.image=NSImage(systemSymbolName:"viewfinder",accessibilityDescription:model.text("截留","Jieliu"))
+        status.button?.toolTip=model.text("截留 · 截图收纳托盘","Jieliu · Screenshot tray")
         let menu=NSMenu()
-        menu.addItem(withTitle:"展开截图托盘",action:#selector(expand),keyEquivalent:"").target=self
+        menu.addItem(withTitle:model.text("展开截图托盘","Show screenshot tray"),action:#selector(expand),keyEquivalent:"").target=self
         let concepts=NSMenu()
         for concept in Concept.allCases {
-            let item=concepts.addItem(withTitle:"\(concept.rawValue)  \(concept.title)",action:#selector(chooseConcept(_:)),keyEquivalent:"")
+            let item=concepts.addItem(withTitle:"\(concept.rawValue)  \(model.title(concept))",action:#selector(chooseConcept(_:)),keyEquivalent:"")
             item.representedObject=concept.rawValue; item.target=self
         }
-        let parent=menu.addItem(withTitle:"视觉方案",action:nil,keyEquivalent:""); parent.submenu=concepts
-        menu.addItem(withTitle:"打开截图文件夹",action:#selector(openFolder),keyEquivalent:"").target=self
+        let parent=menu.addItem(withTitle:model.text("视觉方案","Appearance"),action:nil,keyEquivalent:""); parent.submenu=concepts
+        menu.addItem(withTitle:model.text("打开截图文件夹","Open screenshot folder"),action:#selector(openFolder),keyEquivalent:"").target=self
         menu.addItem(.separator())
-        menu.addItem(withTitle:"设置…",action:#selector(openSettings),keyEquivalent:",").target=self
-        menu.addItem(withTitle:"退出截留",action:#selector(quit),keyEquivalent:"q").target=self
+        menu.addItem(withTitle:model.text("设置…","Settings…"),action:#selector(openSettings),keyEquivalent:",").target=self
+        menu.addItem(withTitle:model.text("退出截留","Quit Jieliu"),action:#selector(quit),keyEquivalent:"q").target=self
         status.menu=menu; self.status=status
     }
     @objc func expand() { tray?.expand() }
@@ -54,7 +63,7 @@ final class AppDelegate:NSObject,NSApplicationDelegate {
             self.model.defaults.set(true,forKey:"onboarded"); self.settings?.close(); self.startWatching(); self.tray?.expand()
         }
         let window=NSWindow(contentRect:CGRect(x:0,y:0,width:556,height:720),styleMask:[.titled,.closable],backing:.buffered,defer:false)
-        window.title=onboarding ? "欢迎使用截留" : "截留设置"
+        window.title=onboarding ? model.text("欢迎使用截留","Welcome to Jieliu") : model.text("截留设置","Jieliu Settings")
         let hosting=NSHostingView(rootView:view)
         window.contentView=hosting; window.setContentSize(hosting.fittingSize)
         window.isReleasedWhenClosed=false; window.center()
