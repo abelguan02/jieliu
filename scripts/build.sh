@@ -18,9 +18,9 @@ else
     binary_dir=$(swift build --disable-sandbox --cache-path .build/cache -c "$configuration" --show-bin-path)
     cp "$binary_dir/Jieliu" "$app/Contents/MacOS/Jieliu"
 fi
-cp Resources/Info.plist "$app/Contents/Info.plist"
-base64 -D -i Resources/GeistMono-Medium.ttf.b64 -o "$app/Contents/Resources/GeistMono-Medium.ttf"
-cp Resources/Geist-OFL.txt "$app/Contents/Resources/Geist-OFL.txt"
+cp apps/macos/Resources/Info.plist "$app/Contents/Info.plist"
+base64 -D -i apps/macos/Resources/GeistMono-Medium.ttf.b64 -o "$app/Contents/Resources/GeistMono-Medium.ttf"
+cp apps/macos/Resources/Geist-OFL.txt "$app/Contents/Resources/Geist-OFL.txt"
 "$app/Contents/MacOS/Jieliu" --render-icon "$app/Contents/Resources/AppIcon.icns"
 if [[ -n "${SIGNING_IDENTITY:-}" ]]; then
     codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$app"
