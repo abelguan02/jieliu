@@ -22,7 +22,7 @@ internal sealed class SettingsWindow : Window
     }
     private void Render()
     {
-        Title = model.Text("截留 · 设置", "Jieliu · Settings");
+        Title = model.Text("截留 · 设置", "Jieliu · Settings") + " · " + typeof(SettingsWindow).Assembly.GetName().Version?.ToString(3);
         var stack = new StackPanel { Margin = new Thickness(26) };
         Content = new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         void Label(string zh, string en) => stack.Children.Add(new TextBlock { Text = model.Text(zh, en), Margin = new Thickness(0, 18, 0, 7), FontWeight = FontWeights.SemiBold });
@@ -40,6 +40,12 @@ internal sealed class SettingsWindow : Window
         stack.Children.Add(style);
         var auto = new CheckBox { Content = model.Text("鼠标离开后自动收起", "Collapse after pointer leaves"), IsChecked = model.Settings.AutoHide || model.Settings.MenuOnly, IsEnabled = !model.Settings.MenuOnly, Margin = new Thickness(0, 16, 0, 0) };
         auto.Click += (_, _) => { model.Settings.AutoHide = auto.IsChecked == true; model.SavePreferences(); }; stack.Children.Add(auto);
+        var animations = new CheckBox { Content = model.Text("界面动效", "Interface animations"), IsChecked = model.Settings.Animations, Margin = new Thickness(0, 14, 0, 0) };
+        animations.Click += (_, _) => { model.Settings.Animations = animations.IsChecked == true; model.SavePreferences(); }; stack.Children.Add(animations);
+        stack.Children.Add(new TextBlock { Text = SystemParameters.ClientAreaAnimation
+            ? model.Text("展开、截图入槽和选中边框动效；遵循 Windows 动画设置。", "Expansion, incoming captures and selection motion; respects Windows animation settings.")
+            : model.Text("Windows 已关闭动画效果，当前以静态方式显示。可在系统设置 → 辅助功能 → 视觉效果中开启。", "Windows animations are disabled. Enable them in Settings → Accessibility → Visual effects."),
+            TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DimGray, Margin = new Thickness(0, 6, 0, 0) });
         Label("截图接入文件夹", "Screenshot input folder");
         Folder(stack, model.Settings.Source, path => model.Settings.Source = path);
         Label("保存文件夹", "Archive folder");

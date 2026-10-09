@@ -11,6 +11,14 @@ static async Task Until(Func<bool> condition, string reason)
 }
 
 var root = Path.Combine(Path.GetTempPath(), "jieliu-check-" + Guid.NewGuid().ToString("N"));
+var opening = new Motion(); opening.Retarget(1, 0, 0.46);
+Check(opening.Value(0) == 0 && opening.Value(0.2) > 0 && opening.Value(0.2) < 1, "Expansion must have intermediate frames");
+var interrupted = opening.Value(0.2); opening.Retarget(0, 0.2, 0.32);
+Check(opening.Value(0.2) == interrupted && opening.Value(0.3) < interrupted, "Reversing motion must not jump");
+Check(opening.Value(1) == 0 && !opening.Running(1), "Collapse must terminate exactly at hidden geometry");
+opening.Retarget(1, 1, 0);
+Check(opening.Value(1) == 1 && !opening.Running(1), "Reduced motion must settle immediately");
+Console.WriteLine("PASS: intermediate animation frames, interrupted reversal, final geometry and reduced-motion settlement");
 Directory.CreateDirectory(root);
 try
 {

@@ -13,6 +13,7 @@ public sealed class Preferences
     public string Style { get; set; } = "B";
     public bool MenuOnly { get; set; }
     public bool AutoHide { get; set; } = true;
+    public bool Animations { get; set; } = true;
     public string Source { get; set; } = Native.Screenshots();
     public string Destination { get; set; } = Native.Screenshots();
 }

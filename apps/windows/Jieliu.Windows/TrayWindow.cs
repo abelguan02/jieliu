@@ -9,7 +9,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Jieliu.Core;
 using Forms = System.Windows.Forms;
@@ -21,6 +20,8 @@ internal sealed class TrayWindow : Window
     private readonly Model model;
     private readonly TraySurface surface;
     private readonly DispatcherTimer timer;
+    private readonly DispatcherTimer motionTimer;
+    private readonly Motion opening = new();
     private DateTime leaveAt = DateTime.UtcNow;
     private DateTime holdUntil;
     private bool expanded;
@@ -33,6 +34,8 @@ internal sealed class TrayWindow : Window
         Topmost = true; ShowInTaskbar = false; ShowActivated = false;
         Width = 164; Height = 34;
         surface = new TraySurface(model, () => Expand(false), () => Collapse(), settings);
+        motionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+        motionTimer.Tick += (_, _) => ApplyFrame();
         Content = new Viewbox { Stretch = Stretch.Fill, Child = surface };
         SourceInitialized += (_, _) => Native.ToolWindow(this);
         MouseEnter += (_, _) => { leaveAt = DateTime.MaxValue; if (!expanded) Expand(false); };
@@ -45,27 +48,45 @@ internal sealed class TrayWindow : Window
             if ((model.Settings.AutoHide || model.Settings.MenuOnly) && DateTime.UtcNow > holdUntil && DateTime.UtcNow - leaveAt > TimeSpan.FromMilliseconds(650)) Collapse();
         };
         timer.Start();
-        Closed += (_, _) => { timer.Stop(); surface.Dispose(); };
+        Closed += (_, _) => { timer.Stop(); motionTimer.Stop(); surface.Dispose(); };
     }
     public void RefreshVisibility()
     {
-        if (model.Settings.MenuOnly && !expanded) { Hide(); return; }
+        if (!surface.MotionEnabled) opening.Retarget(expanded ? 1 : 0, Motion.Now, 0);
+        ApplyFrame();
+    }
+    private void ApplyFrame()
+    {
+        var now = Motion.Now;
+        var progress = opening.Value(now);
+        if (!opening.Running(now)) motionTimer.Stop();
+        if (model.Settings.MenuOnly && !expanded && progress <= 0.00001) { surface.Reveal = 0; Hide(); return; }
         if (!IsVisible) Show();
-        surface.Expanded = expanded;
-        surface.Width = expanded ? 1000 : 164;
-        surface.Height = expanded ? 202 : 34;
+        surface.Expanded = progress >= 0.99999;
+        surface.Reveal = progress;
+        surface.Width = 164 + 836 * progress;
+        surface.Height = 34 + 168 * progress;
         Native.Position(this, Screen, surface.Width, surface.Height);
         surface.InvalidateVisual();
     }
     public void Expand(bool incoming)
     {
-        expanded = true; holdUntil = DateTime.UtcNow.AddSeconds(incoming ? 4 : 1.5); leaveAt = DateTime.UtcNow;
-        RefreshVisibility();
-        if (SystemParameters.ClientAreaAnimation) BeginAnimation(OpacityProperty, new DoubleAnimation(0.3, 1, TimeSpan.FromMilliseconds(180)));
+        holdUntil = DateTime.UtcNow.AddSeconds(incoming ? 4 : 1.5); leaveAt = DateTime.UtcNow;
+        if (!expanded)
+        {
+            expanded = true;
+            opening.Retarget(1, Motion.Now, surface.MotionEnabled ? 0.46 : 0);
+            motionTimer.Start();
+        }
+        ApplyFrame();
     }
+    public void Present(Capture capture) { Expand(true); surface.Arrive(capture); }
     private void Collapse()
     {
-        expanded = false; RefreshVisibility();
+        if (!expanded) return;
+        expanded = false;
+        opening.Retarget(0, Motion.Now, surface.MotionEnabled ? 0.32 : 0);
+        motionTimer.Start(); ApplyFrame();
     }
 }
 
@@ -80,7 +101,21 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     private PreviewWindow? preview;
     private ContextMenu? contextMenu;
     private Capture? selectOnRelease;
+    private readonly DispatcherTimer animationTimer;
+    private readonly Dictionary<Guid, Rect> positions = [];
+    private readonly Dictionary<Guid, Rect> origins = [];
+    private readonly Dictionary<Guid, (Capture Capture, ImageSource? Image)> painted = [];
+    private readonly List<(Rect Rect, ImageSource? Image, double Start)> ghosts = [];
+    private readonly Dictionary<Guid, double> arrivals = [];
+    private readonly List<(Capture Capture, Rect Rect)> incomingOverlay = [];
+    private string layoutKey = "";
+    private double layoutStart;
+    private double reveal;
+    private Guid? hovered;
+    private readonly Dictionary<Guid, Motion> hoverMotion = [];
     public bool Expanded { get; set; }
+    public double Reveal { get => reveal; set { reveal = value; UpdateAnimationTimer(); } }
+    public bool MotionEnabled => model.Settings.Animations && SystemParameters.ClientAreaAnimation;
     public bool Dragging { get; private set; }
     public bool PreviewOpen => preview?.IsVisible == true;
     public bool MenuOpen => contextMenu?.IsOpen == true;
@@ -92,6 +127,10 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     public TraySurface(Model model, Action expand, Action collapse, Action settings)
     {
         this.model = model; this.expand = expand; this.collapse = collapse; this.settings = settings;
+        animationTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(25) };
+        animationTimer.Tick += (_, _) => { UpdateAnimationTimer(); InvalidateVisual(); };
+        IsVisibleChanged += (_, _) => UpdateAnimationTimer();
+        MouseLeave += (_, _) => Hover(null);
         Focusable = true; FocusVisualStyle = null;
         model.Changed += Refresh;
         MouseLeftButtonDown += Down;
@@ -108,7 +147,42 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     }
     private void Refresh()
     {
+        var key = model.Settings.Style + string.Join(",", model.History.Items.Select(c => c.Id));
+        if (key != layoutKey)
+        {
+            layoutStart = Motion.Now; layoutKey = key;
+            origins.Clear(); foreach (var pair in positions) origins[pair.Key] = pair.Value;
+            var live = model.History.Items.Select(c => c.Id).ToHashSet();
+            if (MotionEnabled && Reveal > 0.5)
+                foreach (var pair in painted.Where(p => !live.Contains(p.Key)))
+                    if (positions.TryGetValue(pair.Key, out var rect)) ghosts.Add((rect, pair.Value.Image, layoutStart));
+            foreach (var id in positions.Keys.Where(id => !live.Contains(id)).ToArray())
+            { positions.Remove(id); painted.Remove(id); hoverMotion.Remove(id); arrivals.Remove(id); }
+        }
+        if (!MotionEnabled) { ghosts.Clear(); arrivals.Clear(); }
+        UpdateAnimationTimer();
         ToolTip = model.Text("截图来源屏幕不可用，自动在鼠标所在屏幕展开", "Source display unavailable; new captures open on the pointer's display");
+        InvalidateVisual();
+    }
+    public void Arrive(Capture capture)
+    {
+        if (MotionEnabled) arrivals[capture.Id] = Motion.Now + (Reveal < 0.95 ? 0.2 : 0);
+        UpdateAnimationTimer(); InvalidateVisual();
+    }
+    private void UpdateAnimationTimer()
+    {
+        if (IsVisible && Reveal > 0.001 && MotionEnabled) animationTimer.Start(); else animationTimer.Stop();
+    }
+    private void Hover(Guid? id)
+    {
+        if (hovered == id) return;
+        foreach (var pair in hoverMotion) pair.Value.Retarget(0, Motion.Now, MotionEnabled ? 0.22 : 0);
+        hovered = id;
+        if (id is { } next)
+        {
+            if (!hoverMotion.TryGetValue(next, out var motion)) hoverMotion[next] = motion = new Motion();
+            motion.Retarget(1, Motion.Now, MotionEnabled ? 0.2 : 0);
+        }
         InvalidateVisual();
     }
     private void Text(DrawingContext dc, string value, double x, double y, double size = 11, Brush? brush = null)
@@ -118,15 +192,23 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     protected override void OnRender(DrawingContext dc)
     {
         hits.Clear();
-        if (!Expanded)
+        incomingOverlay.Clear();
+        var p = Reveal;
+        dc.PushClip(new RectangleGeometry(new Rect(0, 0, Width, Height)));
+        dc.DrawRoundedRectangle(Brushes.Black, new Pen(Dim, 0.6), new Rect(0, 0, Width, Height), 17 + 8 * p, 17 + 8 * p);
+        if (p < 0.65)
         {
-            dc.DrawRoundedRectangle(Brushes.Black, new Pen(Dim, 0.6), new Rect(0, 0, 164, 34), 17, 17);
+            dc.PushOpacity(Math.Max(0, 1 - p / 0.65));
+            dc.PushTransform(new TranslateTransform((Width - 164) / 2, 0));
             Corners(dc, new Rect(17, 10, 18, 13), Brushes.White);
             Text(dc, model.Text("截留", "JIELIU"), 48, 10, 11);
-            Text(dc, model.History.Items.Count.ToString("00"), 126, 10, 11, Muted); return;
+            Text(dc, model.History.Items.Count.ToString("00"), 126, 10, 11, Muted);
+            dc.Pop(); dc.Pop();
         }
+        if (p <= 0.001) { dc.Pop(); return; }
+        dc.PushOpacity(Math.Clamp((p - 0.15) / 0.85, 0, 1));
+        dc.PushTransform(new TranslateTransform((Width - 1000) / 2, -18 * (1 - p)));
         var style = model.Settings.Style;
-        dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(style == "C" ? (byte)225 : (byte)250, 0, 0, 0)), null, new Rect(0, 0, 1000, 202), 25, 25);
         Text(dc, style switch { "A" => model.Text("截图标尺", "SCREENSHOT RULER"), "C" => model.Text("截图图层", "SCREENSHOT LAYERS"), _ => model.Text("截图缓冲区", "SCREENSHOT BUFFER") } + $" · {model.History.Items.Count}/8", 26, 12, 11, Muted);
         Text(dc, model.Text("设置", "SETTINGS") + "  ·  ×", 866, 12, 11, Muted);
         dc.DrawRoundedRectangle(Tile, new Pen(Dim, 0.5), new Rect(580, 7, 265, 22), 5, 5);
@@ -144,9 +226,11 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
                 Text(dc, capture is null ? model.Text("空", "EMPTY") : $"{capture.Width}×{capture.Height}", rect.X, 139, 10.5, Dim);
                 if (i == model.History.WritePointer)
                 {
+                    dc.PushOpacity(!MotionEnabled ? 1 : 0.4 + 0.6 * (0.5 + 0.5 * Math.Sin(Motion.Now * Math.PI * 2)));
                     dc.DrawRectangle(Brushes.OrangeRed, null, new Rect(rect.X, 115, 36, 2));
                     dc.DrawRectangle(Brushes.LimeGreen, null, new Rect(rect.X + 36, 115, 36, 2));
                     dc.DrawRectangle(Brushes.DodgerBlue, null, new Rect(rect.X + 72, 115, 36, 2));
+                    dc.Pop();
                 }
             }
         }
@@ -171,20 +255,60 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
             for (var i = items.Count - 1; i >= 0; i--)
             {
                 var x = 35 + i * 116; var y = 52 + (i % 2) * 10;
-                // Staggered layers preserve individual hit regions and drag targets.
                 var rect = new Rect(x, y, 119, 88);
-                dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(50, 255, 255, 255)), null, new Rect(x + 5, y + 5, 119, 88));
                 Shot(dc, items[i], rect);
                 Text(dc, items[i].Created.ToString("HH:mm:ss"), x, y + 96, 10, Muted);
             }
         }
         Text(dc, model.Text("拖出原图  ·  空格预览  ·  Delete 移出并保留文件", "DRAG ORIGINAL  ·  SPACE PREVIEW  ·  DELETE REMOVES FROM TRAY"), 26, 181, 10, Dim);
         if (!string.IsNullOrEmpty(model.LastError)) Text(dc, model.Text("! 设置中查看错误", "! SEE SETTINGS"), 830, 181, 10, Brushes.Orange);
+        foreach (var incoming in incomingOverlay) Shot(dc, incoming.Capture, incoming.Rect, true);
+        foreach (var ghost in ghosts.ToArray())
+        {
+            var t = (Motion.Now - ghost.Start) / 0.42;
+            if (t >= 1) { ghosts.Remove(ghost); continue; }
+            var q = Motion.Ease(t);
+            var rect = Blend(ghost.Rect, new Rect(720, 17, 8, 5), q);
+            dc.PushOpacity(1 - q); dc.DrawRectangle(Tile, null, rect);
+            if (ghost.Image is { } image) dc.DrawImage(image, rect);
+            dc.Pop();
+        }
+        dc.Pop(); dc.Pop(); dc.Pop();
     }
-    private void Shot(DrawingContext dc, Capture? capture, Rect rect)
+    private static Rect Blend(Rect a, Rect b, double t) => new(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t, a.Width + (b.Width - a.Width) * t, a.Height + (b.Height - a.Height) * t);
+    private void Shot(DrawingContext dc, Capture? capture, Rect rect, bool overlay = false)
     {
+        if (!overlay && capture is not null && MotionEnabled && arrivals.TryGetValue(capture.Id, out var began) && Motion.Now < began + 0.78)
+        {
+            dc.DrawRoundedRectangle(Tile, new Pen(Dim, 0.6), rect, 4, 4);
+            incomingOverlay.Add((capture, rect)); return;
+        }
+        var arrival = 1.0;
+        if (capture is not null)
+        {
+            if (MotionEnabled && origins.TryGetValue(capture.Id, out var origin)) rect = Blend(origin, rect, Motion.Ease((Motion.Now - layoutStart) / 0.42));
+            if (MotionEnabled && arrivals.TryGetValue(capture.Id, out var start))
+            {
+                arrival = Math.Clamp((Motion.Now - start) / 0.78, 0, 1);
+                // A visible miniature screenshot descends and settles into its slot.
+                rect = Blend(new Rect(428, 30, 144, 90), rect, Motion.Ease(arrival));
+                if (arrival >= 1) arrivals.Remove(capture.Id);
+            }
+            var hover = hoverMotion.TryGetValue(capture.Id, out var motion) ? motion.Value(Motion.Now) : 0;
+            if (model.Settings.Style == "C")
+            {
+                var unfold = MotionEnabled ? Motion.Ease((Reveal - 0.3) / 0.7) : 1;
+                rect = Blend(new Rect(450 + model.History.Items.IndexOf(capture) * 10, 45, 100, 95), rect, unfold);
+                rect.Y -= hover * 7;
+            }
+            rect.Inflate(hover * 3, hover * 3);
+            positions[capture.Id] = rect;
+        }
+        dc.PushOpacity(Math.Clamp(arrival * 4, 0, 1));
         dc.DrawRoundedRectangle(Tile, new Pen(Dim, 0.6) { DashStyle = capture is null ? DashStyles.Dash : DashStyles.Solid }, rect, 4, 4);
-        if (capture is null) return;
+        if (capture is null) { dc.Pop(); return; }
+        if (arrival < 1)
+            dc.DrawRoundedRectangle(null, new Pen(new SolidColorBrush(Color.FromArgb((byte)(180 * (1 - arrival)), 70, 140, 255)), 2 + 4 * (1 - arrival)), rect, 4, 4);
         if (model.Image(capture) is { } image)
         {
             var scale = Math.Min(rect.Width / image.PixelWidth, rect.Height / image.PixelHeight);
@@ -194,10 +318,12 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         if (model.Selection.Contains(capture.Id))
         {
             var border = rect; border.Inflate(4, 4);
-            dc.DrawRectangle(null, new Pen(Brushes.White, 1.2) { DashStyle = DashStyles.Dash }, border);
+            dc.DrawRectangle(null, new Pen(Brushes.White, 1.2) { DashStyle = new DashStyle(new double[] { 4, 3 }, MotionEnabled ? -Motion.Now * 14 % 7 : 0) }, border);
             Corners(dc, border, Brushes.White);
         }
-        hits.Add((capture, rect));
+        painted[capture.Id] = (capture, model.Image(capture));
+        dc.Pop();
+        if (Expanded && arrival > 0.85) hits.Add((capture, rect));
     }
     private static void Corners(DrawingContext dc, Rect r, Brush color)
     {
@@ -246,6 +372,7 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     }
     private void Move(object sender, MouseEventArgs e)
     {
+        if (!Dragging) Hover(hits.LastOrDefault(h => h.Rect.Contains(e.GetPosition(this))).Capture?.Id);
         if (!pressed || e.LeftButton != MouseButtonState.Pressed) return;
         var delta = e.GetPosition(this) - down;
         if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance) return;
@@ -310,5 +437,5 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         Add("移出托盘（保留文件）", "Remove from tray (keep file)", model.RemoveSelected);
         Add("设置…", "Settings…", settings); menu.IsOpen = true;
     }
-    public void Dispose() { model.Changed -= Refresh; preview?.Close(); if (contextMenu is not null) contextMenu.IsOpen = false; }
+    public void Dispose() { animationTimer.Stop(); model.Changed -= Refresh; preview?.Close(); if (contextMenu is not null) contextMenu.IsOpen = false; }
 }

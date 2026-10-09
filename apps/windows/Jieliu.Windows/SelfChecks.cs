@@ -29,7 +29,7 @@ internal static class SelfChecks
             using (var file = File.Create(path)) encoder.Save(file);
             var capture = new Capture(Guid.NewGuid(), path, DateTime.Now, 64, 32);
             model.Receive(capture); model.Selection.Add(capture.Id);
-            using (var surface = new TraySurface(model, () => { }, () => { }, () => { }) { Width = 1000, Height = 202, Expanded = true })
+            using (var surface = new TraySurface(model, () => { }, () => { }, () => { }) { Width = 1000, Height = 202, Expanded = true, Reveal = 1 })
             {
                 foreach (var style in new[] { "A", "B", "C" })
                 {
@@ -39,6 +39,15 @@ internal static class SelfChecks
                     var bytes = new byte[1000 * 202 * 4]; output.CopyPixels(bytes, 4000, 0);
                     Check(Array.Exists(bytes, b => b != 0), "Empty render for " + style);
                 }
+                byte[] Frame(double reveal)
+                {
+                    surface.Reveal = reveal; surface.Width = 164 + 836 * reveal; surface.Height = 34 + 168 * reveal;
+                    surface.Measure(new Size(surface.Width, surface.Height)); surface.Arrange(new Rect(0, 0, surface.Width, surface.Height)); surface.InvalidateVisual(); surface.UpdateLayout();
+                    var output = new RenderTargetBitmap(1000, 202, 96, 96, PixelFormats.Pbgra32); output.Render(surface);
+                    var bytes = new byte[1000 * 202 * 4]; output.CopyPixels(bytes, 4000, 0); return bytes;
+                }
+                var collapsed = Frame(0); var midpoint = Frame(0.5); var opened = Frame(1);
+                Check(!System.Linq.Enumerable.SequenceEqual(collapsed, midpoint) && !System.Linq.Enumerable.SequenceEqual(midpoint, opened), "Expansion frames must be visually distinct");
             }
             model.Settings.English = true; model.Settings.MenuOnly = true; model.SavePreferences();
             var restored = new Model(root);
@@ -52,7 +61,7 @@ internal static class SelfChecks
                 panel.Expand(true); Check(panel.IsVisible && GetForegroundWindow() == foreground, "Automatic panel steals focus");
             }
             finally { panel.Close(); }
-            Console.WriteLine("PASS: WPF render A/B/C, default settings, persistence, deletion preserves file, hidden entry and nonactivating presentation");
+            Console.WriteLine("PASS: WPF render A/B/C, distinct animation frames, default settings, persistence, deletion preserves file, hidden entry and nonactivating presentation");
         }
         finally { Directory.Delete(root, true); }
     }

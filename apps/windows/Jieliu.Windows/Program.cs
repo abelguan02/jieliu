@@ -96,7 +96,7 @@ internal sealed class Program : Application
     {
         // Saved files have no reliable source-monitor rectangle. Explicit mouse fallback.
         var screen = Forms.Screen.FromPoint(Forms.Cursor.Position);
-        panels.FirstOrDefault(p => p.Screen.DeviceName == screen.DeviceName)?.Expand(true);
+        panels.FirstOrDefault(p => p.Screen.DeviceName == screen.DeviceName)?.Present(capture);
     }
     private void Expand()
     {

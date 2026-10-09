@@ -30,4 +30,6 @@ powershell -ExecutionPolicy Bypass -File scripts/windows-build.ps1
 
 输出 `dist/Jieliu-win-x64.zip`，自包含 .NET 运行时。Windows 真机图形检查加 `-Gui` 参数运行 `windows-check.ps1`。
 
-这是未签名的测试版。C 图层、飞入动画与 HTML 仍有视觉差异，外部应用拖放、多屏及混合缩放需要 Windows 实测。详见[实现与验收](../../docs/windows.md)。
+0.1.1 已加入胶囊展开/收起、截图入槽、记录位移、移出归档、预览及动态选中框。动效默认开启，遵循 Windows 系统动画设置；应用设置会提示系统是否关闭了动画。
+
+这是未签名的测试版。C 图层的透视与完整粒子动效仍与 HTML 有差异，外部应用拖放、多屏及混合缩放需要 Windows 实测。详见[实现与验收](../../docs/windows.md)。
