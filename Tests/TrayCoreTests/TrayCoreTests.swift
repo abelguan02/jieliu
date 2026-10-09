@@ -1,7 +1,7 @@
 import Foundation
 import TrayCore
 
-func XCTAssertEqual<T: Equatable>(_ a: T, _ b: T, file: StaticString = #filePath, line: UInt = #line) { precondition(a == b, "Expected \(a) == \(b)", file: file, line: line) }
+func XCTAssertEqual<T: Equatable>(_ a: T, _ b: T, file: StaticString = #file, line: UInt = #line) { precondition(a == b, "Expected \(a) == \(b)", file: file, line: line) }
 func XCTAssertNotEqual<T: Equatable>(_ a: T, _ b: T) { precondition(a != b) }
 func XCTAssertTrue(_ value: Bool) { precondition(value) }
 func XCTAssertFalse(_ value: Bool) { precondition(!value) }
