@@ -21,6 +21,9 @@ fi
 cp apps/macos/Resources/Info.plist "$app/Contents/Info.plist"
 base64 -D -i apps/macos/Resources/GeistMono-Medium.ttf.b64 -o "$app/Contents/Resources/GeistMono-Medium.ttf"
 cp apps/macos/Resources/Geist-OFL.txt "$app/Contents/Resources/Geist-OFL.txt"
+# Replacing a previously signed executable invalidates the old bundle seal.
+# Sign the intermediate bundle before running its icon renderer, then seal again.
+codesign --force --sign - "$app"
 "$app/Contents/MacOS/Jieliu" --render-icon "$app/Contents/Resources/AppIcon.icns"
 if [[ -n "${SIGNING_IDENTITY:-}" ]]; then
     codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$app"
