@@ -65,6 +65,7 @@ final class AppDelegate:NSObject,NSApplicationDelegate {
 
 let application=NSApplication.shared
 application.setActivationPolicy(.accessory)
+Fonts.register()
 if let index=CommandLine.arguments.firstIndex(of:"--render-icon"),CommandLine.arguments.indices.contains(index+1) {
     try AppIcon.write(to:URL(fileURLWithPath:CommandLine.arguments[index+1])); exit(0)
 }

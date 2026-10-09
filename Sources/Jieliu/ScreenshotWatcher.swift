@@ -83,7 +83,12 @@ final class ScreenshotWatcher {
     }
 
     private func drain() {
-        for url in Array(pending.keys) {
+        let ordered=pending.keys.sorted { a,b in
+            let da=(try? FileManager.default.attributesOfItem(atPath:a.path)[.creationDate] as? Date) ?? pending[a]!.first
+            let db=(try? FileManager.default.attributesOfItem(atPath:b.path)[.creationDate] as? Date) ?? pending[b]!.first
+            return da<db
+        }
+        for url in ordered {
             guard var state = pending[url] else { continue }
             if Date().timeIntervalSince(state.first) > 30 { pending[url] = nil; known.insert(url); continue }
             guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),

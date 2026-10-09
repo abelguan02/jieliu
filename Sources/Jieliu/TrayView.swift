@@ -59,6 +59,12 @@ final class TrayView: NSView, NSDraggingSource {
         case .layers: return p.y < top+200
         }
     }
+    func acceptsPointer(at point:CGPoint)->Bool {
+        guard expanded,model.concept != .buffer else { return interactive(at:point) }
+        let p=CGPoint(x:point.x/scale,y:point.y/scale)
+        if CGRect(x:designWidth/2-98,y:0,width:196,height:top).contains(p) { return true }
+        return folderRect.contains(p) || hit(p) != nil
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)

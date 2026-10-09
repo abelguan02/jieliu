@@ -59,7 +59,7 @@ final class TrayController {
             let global=NSEvent.mouseLocation, screen=screens[index]
             let p=CGPoint(x:global.x-screen.frame.minX,y:screen.frame.maxY-global.y)
             let inside=screen.frame.contains(global) && view.interactive(at:p)
-            panels[index].ignoresMouseEvents = !inside && !view.dragging
+            panels[index].ignoresMouseEvents = !view.acceptsPointer(at:p) && !view.dragging
             view.hovering=inside
             if inside { view.expanded=true; deadlines[index]=CACurrentMediaTime()+1.8; view.pointer(p) }
             else { view.pointer(CGPoint(x:-100,y:-100)) }

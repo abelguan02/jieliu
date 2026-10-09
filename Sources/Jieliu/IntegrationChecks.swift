@@ -40,7 +40,17 @@ enum IntegrationChecks {
         precondition(item.data(forType:.png) == bytes,"Drag must preserve original PNG pixels")
         precondition(item.string(forType:.fileURL) == captures[0].url.absoluteString)
         try checkInteractions(captures[0])
+        try checkPanelFocus()
         print("PASS: watcher, delayed metadata, source rectangle, archive, duplicate suppression, old-file baseline, filename false-positive rejection, original drag bytes")
+    }
+    static func checkPanelFocus() throws {
+        guard !NSScreen.screens.isEmpty else { throw NSError(domain:"Jieliu.Checks",code:1,userInfo:[NSLocalizedDescriptionKey:"No display available for panel focus check"]) }
+        let model=AppModel(demo:true)
+        let controller=TrayController(model:model)
+        defer { controller.panels.forEach { $0.orderOut(nil) } }
+        controller.expand(); spin(0.5)
+        precondition(controller.panels.allSatisfy { $0.isVisible && !$0.isKeyWindow },"Automatic presentation must not take keyboard focus")
+        print("PASS: live NSPanel presentation remains nonactivating across \(controller.panels.count) attached displays")
     }
     static func checkInteractions(_ capture:Capture) throws {
         for concept in Concept.allCases {
@@ -51,6 +61,7 @@ enum IntegrationChecks {
             view.expanded=true; view.openness=1
             let surface=NSImage(size:view.frame.size); surface.lockFocusFlipped(true); view.draw(view.bounds); surface.unlockFocus()
             let r=view.layout[capture.id]!
+            if concept != .buffer { precondition(!view.acceptsPointer(at:CGPoint(x:10,y:10)),"Must not block the Apple menu") }
             let click=view.convert(CGPoint(x:r.midX,y:r.midY),to:nil)
             let down=NSEvent.mouseEvent(with:.leftMouseDown,location:click,modifierFlags:[],timestamp:0,windowNumber:0,context:nil,eventNumber:1,clickCount:1,pressure:1)!
             view.mouseDown(with:down); view.mouseUp(with:down)
