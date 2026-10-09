@@ -12,6 +12,7 @@ struct SettingsView:View {
     var start:()->Void
     @ObservedObject private var state=SettingsState()
     var body:some View {
+        ScrollView {
         VStack(alignment:.leading,spacing:22) {
             HStack(spacing:14) {
                 Image(systemName:"viewfinder").font(.system(size:32,weight:.light)).foregroundStyle(.cyan)
@@ -39,8 +40,16 @@ struct SettingsView:View {
                 Text(model.text("首次监听桌面时，macOS 可能询问文件夹访问权限，请允许。只处理启用之后生成的截图，不搬动旧文件。","Allow folder access when macOS asks. Only new screenshots are collected; existing files stay where they are.")).font(.system(size:12)).foregroundStyle(.secondary)
             }
             VStack(alignment:.leading,spacing:10) {
-                Text(model.text("视觉方案","Appearance")).font(.headline)
-                Picker(model.text("视觉方案","Appearance"),selection:$model.concept) {
+                Text(model.text("收起入口","Collapsed entry")).font(.headline)
+                Picker(model.text("收起入口","Collapsed entry"),selection:$model.entry) {
+                    Text(model.text("取景框胶囊","Viewfinder capsule")).tag(TrayEntry.capsule)
+                    Text(model.text("仅菜单栏图标","Menu bar icon only")).tag(TrayEntry.menuBarOnly)
+                }.pickerStyle(.segmented).labelsHidden()
+                Text(model.text("仅菜单栏模式平时隐藏顶部入口；点击菜单或收到新截图时展开，离开后收起。","Menu bar mode hides the top entry. Open it from the menu or with a new screenshot; it collapses when you leave.")).font(.caption).foregroundStyle(.secondary)
+            }
+            VStack(alignment:.leading,spacing:10) {
+                Text(model.text("展开样式","Expanded style")).font(.headline)
+                Picker(model.text("展开样式","Expanded style"),selection:$model.concept) {
                     ForEach(Concept.allCases) { concept in Text("\(concept.rawValue)  \(model.title(concept))").tag(concept) }
                 }.pickerStyle(.segmented).labelsHidden()
             }
@@ -55,6 +64,7 @@ struct SettingsView:View {
                 Text(model.text("更改目录仅影响后续截图，现有文件留在原处。","Changing the folder affects future screenshots only.")).font(.caption).foregroundStyle(.secondary)
             }
             Toggle(model.text("鼠标离开后自动收起","Collapse when the pointer leaves"),isOn:$model.autoHide)
+                .disabled(model.entry == .menuBarOnly)
             Toggle(model.text("收纳音效","Capture sounds"),isOn:$model.sound)
             Toggle(model.text("登录时启动","Launch at login"),isOn:$state.launchAtLogin).onChange(of:state.launchAtLogin) { _, enabled in
                 do { if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() } }
@@ -75,5 +85,7 @@ struct SettingsView:View {
             if onboarding { HStack { Spacer(); Button(model.text("开始收纳","Start collecting"),action:start).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction) } }
         }.padding(28).frame(width:560).preferredColorScheme(.dark)
             .environment(\.locale,Locale(identifier:model.language.rawValue))
+        }.frame(width:560,height:min(onboarding ? 810 : 730,(NSScreen.main?.visibleFrame.height ?? 900)-100))
+            .preferredColorScheme(.dark)
     }
 }

@@ -57,6 +57,18 @@ enum DemoSupport {
             let bitmap=NSBitmapImageRep(data:image.tiffRepresentation!)!
             try bitmap.representation(using:.png,properties:[:])!.write(to:output.appendingPathComponent("\(concept.rawValue)-\(concept.title).png"))
         }
-        print("Rendered three native tray previews to \(output.path)")
+        model.entry = .capsule
+        let capsule=TrayView(model:model); capsule.frame=CGRect(x:0,y:0,width:1440,height:270)
+        let image=NSImage(size:CGSize(width:360,height:150)); image.lockFocusFlipped(true)
+        Ink.box(CGRect(x:0,y:0,width:360,height:150),color:Ink.color(0x203342))
+        Ink.text("\u{65E0}\u{5218}\u{6D77}\u{5C4F}\u{5E55}",14,10,size:12)
+        let c=NSGraphicsContext.current!.cgContext
+        c.saveGState(); c.translateBy(x:-540,y:28); capsule.draw(capsule.bounds); c.restoreGState()
+        Ink.text("\u{786C}\u{4EF6}\u{5218}\u{6D77}\u{4E0B}\u{6CBF}",14,75,size:12)
+        capsule.hardwareInset=37
+        c.saveGState(); c.translateBy(x:-540,y:76); capsule.draw(capsule.bounds); c.restoreGState()
+        image.unlockFocus()
+        try NSBitmapImageRep(data:image.tiffRepresentation!)!.representation(using:.png,properties:[:])!.write(to:output.appendingPathComponent("capsule.png"))
+        print("Rendered native tray and capsule previews to \(output.path)")
     }
 }

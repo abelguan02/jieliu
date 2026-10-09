@@ -25,6 +25,14 @@ final class TrayController {
         let timer=Timer(timeInterval:1/30,repeats:true) { [weak self] _ in self?.tick() }
         self.timer=timer; RunLoop.main.add(timer,forMode:.common)
         model.onChange = { [weak self] in self?.views.forEach { $0.needsDisplay=true } }
+        model.onEntryChange = { [weak self] in
+            guard let self else { return }
+            for (index,view) in self.views.enumerated() where !view.dragging && view.landing == nil && !self.preview.visible {
+                view.expanded=false; self.deadlines[index]=0
+                if self.panels[index].isKeyWindow { self.panels[index].resignKey() }
+                view.needsDisplay=true
+            }
+        }
         model.onCapture = { [weak self] capture,old in self?.waiting.append((capture,old)); self?.nextCapture() }
     }
 
@@ -40,6 +48,7 @@ final class TrayController {
             panel.isMovable=false; panel.acceptsMouseMovedEvents=true
             let view=TrayView(model:model); view.frame=CGRect(origin:.zero,size:frame.size)
             view.top=max(32,screen.safeAreaInsets.top)/view.scale
+            view.hardwareInset=screen.safeAreaInsets.top/view.scale
             view.onInteraction = { [weak self] in self?.deadlines[index]=CACurrentMediaTime()+4.6 }
             view.onPreview = { [weak self] id in
                 guard let self else { return }
@@ -63,7 +72,7 @@ final class TrayController {
             view.hovering=inside
             if inside { view.expanded=true; deadlines[index]=CACurrentMediaTime()+1.8; view.pointer(p) }
             else { view.pointer(CGPoint(x:-100,y:-100)) }
-            if !model.autoHide { view.expanded=true }
+            if !model.autoHide && model.entry == .capsule { view.expanded=true }
             else if !inside,!view.dragging,!preview.visible,view.landing == nil,CACurrentMediaTime()>(deadlines[index] ?? 0) {
                 view.expanded=false
                 if panels[index].isKeyWindow { panels[index].resignKey() }

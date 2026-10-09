@@ -8,6 +8,11 @@ enum AppLanguage:String,CaseIterable,Identifiable {
     var title:String { self == .chinese ? "中文" : "English" }
 }
 
+enum TrayEntry:String,CaseIterable,Identifiable {
+    case capsule, menuBarOnly
+    var id:String { rawValue }
+}
+
 enum Concept: String, CaseIterable, Identifiable {
     case ruler = "A", buffer = "B", layers = "C"
     var id: String { rawValue }
@@ -15,6 +20,9 @@ enum Concept: String, CaseIterable, Identifiable {
 }
 
 final class AppModel: ObservableObject {
+    @Published var entry:TrayEntry {
+        didSet { defaults.set(entry.rawValue,forKey:"trayEntry"); onChange?(); onEntryChange?() }
+    }
     @Published var language:AppLanguage {
         didSet { defaults.set(language.rawValue,forKey:"language"); onChange?(); onLanguageChange?() }
     }
@@ -29,6 +37,7 @@ final class AppModel: ObservableObject {
     var onCapture: ((Capture, Capture?) -> Void)?
     var onRestart: (() -> Void)?
     var onLanguageChange:(()->Void)?
+    var onEntryChange:(()->Void)?
     let defaults: UserDefaults
     let historyURL: URL
     let isDemo: Bool
@@ -38,6 +47,7 @@ final class AppModel: ObservableObject {
         isDemo = demo
         defaults = preferences ?? (demo ? UserDefaults(suiteName: "app.jieliu.preview")! : .standard)
         language = AppLanguage(rawValue:defaults.string(forKey:"language") ?? "zh-Hans") ?? .chinese
+        entry = TrayEntry(rawValue:defaults.string(forKey:"trayEntry") ?? "capsule") ?? .capsule
         concept = Concept(rawValue: defaults.string(forKey: "concept") ?? "B") ?? .buffer
         autoHide = defaults.object(forKey: "autoHide") as? Bool ?? true
         sound = defaults.bool(forKey: "sound")

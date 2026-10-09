@@ -4,6 +4,7 @@ import TrayCore
 enum IntegrationChecks {
     static func run() throws {
         checkLanguage()
+        checkEntry()
         let root=FileManager.default.temporaryDirectory.appendingPathComponent("jieliu-check-"+UUID().uuidString)
         let source=root.appendingPathComponent("source"), archive=root.appendingPathComponent("archive")
         try FileManager.default.createDirectory(at:source,withIntermediateDirectories:true)
@@ -41,7 +42,7 @@ enum IntegrationChecks {
         precondition(item.data(forType:.png) == bytes,"Drag must preserve original PNG pixels")
         precondition(item.string(forType:.fileURL) == captures[0].url.absoluteString)
         try checkInteractions(captures[0])
-        try checkPanelFocus()
+        try checkPanelFocus(captures[0])
         print("PASS: watcher, delayed metadata, source rectangle, archive, duplicate suppression, old-file baseline, filename false-positive rejection, original drag bytes")
     }
     static func checkLanguage() {
@@ -64,13 +65,56 @@ enum IntegrationChecks {
         precondition(restored.title(.buffer) == "帧缓冲")
         print("PASS: default Chinese, immediate language callbacks, English strings and preference restoration")
     }
-    static func checkPanelFocus() throws {
+    static func checkEntry() {
+        let suite="app.jieliu.entry-check."+UUID().uuidString, defaults=UserDefaults(suiteName:suite)!
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let model=AppModel(demo:true,preferences:defaults)
+        precondition(model.entry == .capsule && model.concept == .buffer)
+        DemoSupport.populate(model)
+        let view=TrayView(model:model); view.frame=CGRect(x:0,y:0,width:1440,height:270)
+        precondition(view.capsuleRect.minY>0)
+        let point=CGPoint(x:view.capsuleRect.midX,y:view.capsuleRect.midY)
+        precondition(view.interactive(at:point) && view.acceptsPointer(at:point))
+        precondition(!view.interactive(at:CGPoint(x:720,y:0)))
+        view.hardwareInset=37
+        precondition(view.capsuleRect.minY>37)
+        var updates=0; model.onEntryChange={updates+=1}
+        model.entry = .menuBarOnly
+        precondition(updates == 1 && model.concept == .buffer)
+        for concept in Concept.allCases {
+            model.concept=concept
+            precondition(model.entry == .menuBarOnly)
+            precondition(!view.interactive(at:point) && !view.acceptsPointer(at:point))
+            let surface=NSImage(size:view.frame.size); surface.lockFocusFlipped(true); view.draw(view.bounds); surface.unlockFocus()
+            let bitmap=NSBitmapImageRep(data:surface.tiffRepresentation!)!
+            for y in stride(from:0,to:bitmap.pixelsHigh,by:8) {
+                for x in stride(from:0,to:bitmap.pixelsWide,by:8) {
+                    precondition((bitmap.colorAt(x:x,y:y)?.alphaComponent ?? 0) == 0,"Menu-only mode must not draw any idle content")
+                }
+            }
+        }
+        let restored=AppModel(demo:true,preferences:defaults)
+        precondition(restored.entry == .menuBarOnly && restored.concept == .layers)
+        restored.entry = .capsule
+        precondition(restored.concept == .layers)
+        print("PASS: default capsule, screen insets, no invisible hover or idle pixels, independently persisted entry and expanded style")
+    }
+    static func checkPanelFocus(_ capture:Capture) throws {
         guard !NSScreen.screens.isEmpty else { throw NSError(domain:"Jieliu.Checks",code:1,userInfo:[NSLocalizedDescriptionKey:"No display available for panel focus check"]) }
         let model=AppModel(demo:true)
+        model.entry = .menuBarOnly; model.autoHide=false
         let controller=TrayController(model:model)
         defer { controller.panels.forEach { $0.orderOut(nil) } }
+        spin(0.2)
+        precondition(controller.views.allSatisfy { !$0.expanded },"Minimal mode must stay hidden even with the previous auto-hide preference off")
         controller.expand(); spin(0.5)
+        precondition(controller.views.contains { $0.expanded },"Menu action must open minimal mode")
         precondition(controller.panels.allSatisfy { $0.isVisible && !$0.isKeyWindow },"Automatic presentation must not take keyboard focus")
+        model.entry = .capsule; model.entry = .menuBarOnly
+        precondition(controller.views.allSatisfy { !$0.expanded })
+        model.receive(capture)
+        precondition(controller.views.contains { $0.expanded },"A new capture must open minimal mode")
+        model.autoHide=true; model.entry = .capsule
         print("PASS: live NSPanel presentation remains nonactivating across \(controller.panels.count) attached displays")
     }
     static func checkInteractions(_ capture:Capture) throws {

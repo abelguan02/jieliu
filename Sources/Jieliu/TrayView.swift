@@ -15,6 +15,8 @@ final class TrayView: NSView, NSDraggingSource {
     var landingProgress:CGFloat=0
     var arrived:[UUID:Double]=[:]
     var top: CGFloat = 32
+    var hardwareInset:CGFloat=0
+    var capsuleRect:CGRect { CGRect(x:designWidth/2-38,y:hardwareInset>0 ? hardwareInset+4 : 6,width:76,height:24) }
     var lastFrame = CACurrentMediaTime()
     var layout: [UUID: CGRect] = [:]
     var orderedIDs: [UUID] = []
@@ -52,7 +54,7 @@ final class TrayView: NSView, NSDraggingSource {
 
     func interactive(at point: CGPoint) -> Bool {
         let p = CGPoint(x: point.x/scale, y: point.y/scale)
-        if !expanded { return CGRect(x:designWidth/2-108,y:0,width:216,height:top+8).contains(p) }
+        if !expanded { return model.entry == .capsule && capsuleRect.contains(p) }
         switch model.concept {
         case .buffer: return CGRect(x:designWidth/2-500,y:0,width:1000,height:top+140).contains(p)
         case .ruler: return p.y < top+175
@@ -62,7 +64,6 @@ final class TrayView: NSView, NSDraggingSource {
     func acceptsPointer(at point:CGPoint)->Bool {
         guard expanded,model.concept != .buffer else { return interactive(at:point) }
         let p=CGPoint(x:point.x/scale,y:point.y/scale)
-        if CGRect(x:designWidth/2-98,y:0,width:196,height:top).contains(p) { return true }
         return folderRect.contains(p) || hit(p) != nil
     }
 
@@ -71,10 +72,16 @@ final class TrayView: NSView, NSDraggingSource {
         guard let c = NSGraphicsContext.current?.cgContext else { return }
         c.saveGState(); c.scaleBy(x:scale,y:scale)
         layout.removeAll(); orderedIDs.removeAll()
+        guard openness>0.001 else {
+            if model.entry == .capsule { drawCapsule() }
+            c.restoreGState(); return
+        }
         let center = designWidth/2
         if model.concept == .buffer { drawBuffer(center) }
         else {
-            drawNotch(center, width:196, height:top)
+            if model.entry == .capsule {
+                c.saveGState(); c.setAlpha(1-openness); drawCapsule(); c.restoreGState()
+            }
             c.saveGState(); c.setAlpha(openness); c.translateBy(x:0,y:-(1-openness)*200)
             if model.concept == .ruler { drawRuler() } else { drawLayers(center) }
             c.restoreGState()
@@ -94,11 +101,19 @@ final class TrayView: NSView, NSDraggingSource {
         c.restoreGState()
     }
 
-    private func drawNotch(_ center: CGFloat, width: CGFloat, height: CGFloat) {
-        Ink.box(CGRect(x:center-width/2,y:-30,width:width,height:height+30),color:.black,radius:mix(16,30,openness))
-        if openness < 0.3 || model.concept != .buffer {
-            Ink.box(CGRect(x:center-4.5,y:11,width:9,height:9),color:Ink.color(0x182336),radius:4.5)
+    private func drawCapsule() {
+        Ink.box(capsuleRect,color:Ink.color(0x101216,0.97),radius:12,stroke:.white.withAlphaComponent(0.18))
+        drawCapsuleContents()
+    }
+    private func drawCapsuleContents() {
+        let r=CGRect(x:capsuleRect.minX+14,y:capsuleRect.minY+6,width:16,height:12)
+        for (x,dx) in [(r.minX,CGFloat(1)),(r.maxX,CGFloat(-1))] {
+            for (y,dy) in [(r.minY,CGFloat(1)),(r.maxY,CGFloat(-1))] {
+                Ink.line(CGPoint(x:x+dx*4,y:y),CGPoint(x:x,y:y),color:Ink.guide,width:1.3)
+                Ink.line(CGPoint(x:x,y:y),CGPoint(x:x,y:y+dy*4),color:Ink.guide,width:1.3)
+            }
         }
+        Ink.text("\(model.history.items.count)",capsuleRect.minX+46,capsuleRect.minY+5,size:12)
     }
 
     private func drawFolder(_ x: CGFloat, _ y: CGFloat, prefix: String = "") {
@@ -110,10 +125,23 @@ final class TrayView: NSView, NSDraggingSource {
     }
 
     private func drawBuffer(_ center: CGFloat) {
-        drawNotch(center,width:mix(196,1000,openness),height:mix(top,top+134,openness))
-        guard openness > 0.02, let c = NSGraphicsContext.current?.cgContext else { return }
+        guard let c = NSGraphicsContext.current?.cgContext else { return }
+        if openness == 0 {
+            if model.entry == .capsule { drawCapsule() }
+            return
+        }
+        let end=CGRect(x:center-500,y:hardwareInset>0 ? 0 : 4,width:1000,height:top+134)
+        let frame=mixRect(capsuleRect,end,openness)
         c.saveGState()
-        c.clip(to:CGRect(x:center-mix(196,1000,openness)/2,y:0,width:mix(196,1000,openness),height:mix(top,top+134,openness)))
+        if model.entry == .menuBarOnly { c.setAlpha(openness) }
+        Ink.box(frame,color:.black,radius:mix(12,30,openness))
+        c.restoreGState()
+        if model.entry == .capsule {
+            c.saveGState(); c.setAlpha(clamp(1-openness*4)); drawCapsuleContents(); c.restoreGState()
+        }
+        guard openness > 0.02 else { return }
+        c.saveGState()
+        NSBezierPath(roundedRect:frame,xRadius:mix(12,30,openness),yRadius:mix(12,30,openness)).addClip()
         c.setAlpha(clamp((openness-0.3)/0.7))
         let x = center-474
         Ink.text(model.text("截图缓冲区","SCREENSHOT BUFFER")+" · \(model.history.items.count)/8",x,10,size:11,color:Ink.color(0x7d838d))
@@ -210,7 +238,7 @@ final class TrayView: NSView, NSDraggingSource {
         let shadow=NSShadow(); shadow.shadowColor = .black.withAlphaComponent(0.45); shadow.shadowBlurRadius=20; shadow.shadowOffset=NSSize(width:0,height:-10); shadow.set()
         Ink.box(rect,color:.black,radius:3,stroke:hovered == capture.id && model.concept == .ruler ? Ink.guide : .white.withAlphaComponent(0.45))
         NSGraphicsContext.restoreGraphicsState()
-        if let image=model.image(capture) { Ink.image(image,in:rect,alpha:dragging && model.selection.contains(capture.id) ? 0.3 : 1) }
+        if let image=model.image(capture) { Ink.image(image,in:rect,alpha:openness*(dragging && model.selection.contains(capture.id) ? 0.3 : 1)) }
         if model.selection.contains(capture.id) { Ink.selection(rect,time:CACurrentMediaTime()) }
     }
 
@@ -315,7 +343,18 @@ final class TrayView: NSView, NSDraggingSource {
         }
     }
     override func accessibilityChildren()->[Any]? {
-        guard expanded else { return [] }
+        guard expanded else {
+            guard model.entry == .capsule else { return [] }
+            let element=ShotAccessibility()
+            element.setAccessibilityRole(.button)
+            element.setAccessibilityLabel(model.text("展开截图托盘","Show screenshot tray"))
+            element.setAccessibilityParent(self)
+            let r=capsuleRect
+            let local=CGRect(x:r.minX*scale,y:r.minY*scale,width:r.width*scale,height:r.height*scale)
+            if let window { element.setAccessibilityFrame(window.convertToScreen(convert(local,to:nil))) }
+            element.press = { [weak self] in self?.expanded=true; self?.onInteraction?(); self?.needsDisplay=true }
+            accessibleShots=[element]; return accessibleShots
+        }
         accessibleShots=model.history.items.compactMap { capture in
             guard let r=layout[capture.id] else { return nil }
             let element=ShotAccessibility()
