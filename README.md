@@ -5,7 +5,7 @@
 | 平台 | 当前状态 |
 | --- | --- |
 | macOS 14+ | 已有 Swift / AppKit / SwiftUI 实现，可本地构建；正式签名公证尚未完成 |
-| Windows | 已确认产品方向，预留独立客户端目录；尚无可运行版本 |
+| Windows 11 x64 | C# / WPF 原生首版，核心测试与交叉编译通过；Windows 真机验收待完成 |
 
 默认取景框胶囊入口、B 帧缓冲展开样式，支持 A 标尺 / C 图层、中英文，以及仅系统托盘或菜单栏图标模式。
 
@@ -17,10 +17,10 @@ apps/
     Sources/
     Tests/
     Resources/
-  windows/               Windows 客户端边界说明，待实现
+  windows/               C# 核心库、WPF 客户端与回归检查
 design/                  原始 HTML 设计参考与使用说明
 docs/                    平台说明、发布范围
-scripts/                 macOS 检查、构建、打包脚本
+scripts/                 macOS 与 Windows 检查、构建、打包脚本
 Package.swift            macOS Swift Package 入口
 ```
 
@@ -42,6 +42,7 @@ bash scripts/package-local.sh
 
 - [macOS 使用说明与验收边界](docs/macos.md)
 - [Windows 客户端范围](apps/windows/README.md)
+- [Windows 实现与验收](docs/windows.md)
 - [视觉设计参考](design/README.md)
 - [跨平台发布范围](docs/release-scope.md)
 - [贡献说明](CONTRIBUTING.md)

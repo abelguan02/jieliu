@@ -1,6 +1,6 @@
 # Windows 客户端
 
-状态：待实现。此目录用于后续原生 Windows 客户端，尚无项目文件、构建命令或可执行安装包。
+状态：Windows 原生首版已实现，可交叉编译；核心文件与历史检查已在 macOS 执行，Windows 图形桌面尚待真机验收。
 
 已确认的产品方向：
 
@@ -9,6 +9,25 @@
 - 中文和 English；原文件拖放、多选、预览，移出托盘保留文件。
 - 保持 8 槽历史和同名文件不覆盖的约定。
 
-建议使用 C# / WPF，先面向 Windows 11 x64；具体平台版本与实现契约在开发阶段确认。源码和测试都放在此目录，构建产物 `bin/`、`obj/` 不提交。
+使用 C# / WPF、.NET 10，面向 Windows 11 x64。`Jieliu.Core` 为文件与历史逻辑，`Jieliu.Windows` 为客户端，`Jieliu.Checks` 为核心回归测试。构建产物 `bin/`、`obj/` 不提交。
 
-Windows 的截图接入、来源显示器定位与剪贴板行为需要独立实现和真机验证，不能直接复用 macOS 元数据接口。详见[发布范围](../../docs/release-scope.md)。
+## 开始使用
+
+解压便携包后运行 `Jieliu.exe`，保留同目录的运行时及资源文件。程序在系统托盘显示取景框图标；右键进入设置，左键展开。
+
+在系统截图工具中启用自动保存，并将其目录与截留设置中的「截图接入文件夹」保持一致。默认使用 Windows 已知截图文件夹。该目录内新增或修改的普通图片也会被接入；只在剪贴板中的截图不会接入。
+
+拖出复制原文件；Ctrl/Shift 多选、Ctrl+A 全选、Ctrl+C 复制、Space / 双击预览、Delete 移出但保留文件。历史限制为最近 8 张。新截图在鼠标所在屏幕展开，尚不能可靠定位原截图屏幕。
+
+## 构建
+
+开发需要 .NET 10 SDK，在仓库根目录执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/windows-check.ps1
+powershell -ExecutionPolicy Bypass -File scripts/windows-build.ps1
+```
+
+输出 `dist/Jieliu-win-x64.zip`，自包含 .NET 运行时。Windows 真机图形检查加 `-Gui` 参数运行 `windows-check.ps1`。
+
+这是未签名的测试版。C 图层、飞入动画与 HTML 仍有视觉差异，外部应用拖放、多屏及混合缩放需要 Windows 实测。详见[实现与验收](../../docs/windows.md)。

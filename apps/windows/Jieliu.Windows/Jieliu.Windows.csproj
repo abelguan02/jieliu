@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>Jieliu</AssemblyName>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Jieliu.Core/Jieliu.Core.csproj" /></ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../macos/Resources/GeistMono-Medium.ttf.b64" LogicalName="Jieliu.GeistMono" />
+    <None Include="../../macos/Resources/Geist-OFL.txt" Link="Geist-OFL.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

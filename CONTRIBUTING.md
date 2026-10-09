@@ -1,8 +1,8 @@
 # 本地开发与贡献
 
-macOS 实现位于 `apps/macos/`，Windows 实现预留在 `apps/windows/`。视觉参考位于 `design/`，平台行为说明位于 `docs/`。
+macOS 实现位于 `apps/macos/`，Windows 实现位于 `apps/windows/`。视觉参考位于 `design/`，平台行为说明位于 `docs/`。
 
-在仓库根目录执行 `bash scripts/check.sh` 验证 macOS 改动；修改构建或资源路径后另运行 `bash scripts/build.sh`。当前没有 Windows 构建与验证入口，不应将其标记为已通过测试。
+在仓库根目录执行 `bash scripts/check.sh` 验证 macOS 改动；修改构建或资源路径后另运行 `bash scripts/build.sh`。Windows 使用 `scripts/windows-check.ps1`，加 `-Gui` 执行 Windows 桌面检查。核心库可跨平台执行 `dotnet run --project apps/windows/Jieliu.Checks -c Release`；交叉编译通过不等于 Windows 界面验收通过。
 
 截图相关测试使用合成素材与临时目录。不要提交个人截图、缓存、应用包、签名证书或本地凭据。新依赖与素材须保留各自许可证。
 
