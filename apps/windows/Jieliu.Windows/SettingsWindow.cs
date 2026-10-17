@@ -57,6 +57,15 @@ internal sealed class SettingsWindow : Window
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 20, 0, 0), Foreground = Brushes.DimGray
         });
         error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DarkRed, Margin = new Thickness(0, 18, 0, 0) }; stack.Children.Add(error); UpdateError();
+        var diagnostics = new Button { Content = model.Text("导出动效诊断…", "Export animation diagnostics…"), Margin = new Thickness(0, 16, 0, 0), Padding = new Thickness(8) };
+        diagnostics.Click += (_, _) =>
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog { FileName = "Jieliu-visual-diagnostics.json", Filter = "JSON (*.json)|*.json" };
+            if (dialog.ShowDialog(this) != true) return;
+            try { VisualDiagnostics.Save(dialog.FileName, model); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { model.Error(ex.Message); }
+        };
+        stack.Children.Add(diagnostics);
     }
     private void Folder(StackPanel stack, string path, Action<string> set)
     {

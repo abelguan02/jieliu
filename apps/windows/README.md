@@ -28,8 +28,10 @@ powershell -ExecutionPolicy Bypass -File scripts/windows-check.ps1
 powershell -ExecutionPolicy Bypass -File scripts/windows-build.ps1
 ```
 
-输出 `dist/Jieliu-win-x64.zip`，自包含 .NET 运行时。Windows 真机图形检查加 `-Gui` 参数运行 `windows-check.ps1`。
+输出 `dist/Jieliu-win-x64-0.1.2.zip`，自包含 .NET 运行时；按版本独立输出，保留旧包。Windows 真机图形检查加 `-Gui` 参数运行 `windows-check.ps1`，运行前确认电脑空闲。
 
 0.1.1 已加入胶囊展开/收起、截图入槽、记录位移、移出归档、预览及动态选中框。动效默认开启，遵循 Windows 系统动画设置；应用设置会提示系统是否关闭了动画。
 
-这是未签名的测试版。C 图层的透视与完整粒子动效仍与 HTML 有差异，外部应用拖放、多屏及混合缩放需要 Windows 实测。详见[实现与验收](../../docs/windows.md)。
+0.1.2 按原稿加入 C 的旋转投影、悬停转正和分阶段翻转入场，B 的像素 READ/WRITE 与容量淘汰粒子。倾斜图片按真实投影形状命中；主动移出与容量淘汰采用不同效果。
+
+这是未签名的测试版，Windows 视觉结果尚未验证。源截图坐标不可用，入场从托盘附近浮卡开始。[一次完整验收卡](../../docs/windows-acceptance-0.1.2.md)已合并必须实机确认的内容，无需零散重复测试。详见[实现与验收](../../docs/windows.md)。

@@ -25,6 +25,7 @@ public sealed class Model
     public Preferences Settings { get; private set; } = new();
     public History History { get; private set; } = new();
     public HashSet<Guid> Selection { get; } = [];
+    public bool LastChangeWasCapture { get; private set; }
     public string LastError { get; private set; } = "";
     public event Action? Changed;
     public event Action? PreferencesChanged;
@@ -65,6 +66,7 @@ public sealed class Model
     }
     public void Receive(Capture capture)
     {
+        LastChangeWasCapture = true;
         History.Insert(capture);
         Selection.IntersectWith(History.Items.Select(c => c.Id));
         foreach (var id in thumbnails.Keys.Except(History.Items.Select(c => c.Id)).ToArray()) thumbnails.Remove(id);
@@ -72,6 +74,7 @@ public sealed class Model
     }
     public void RemoveSelected()
     {
+        LastChangeWasCapture = false;
         History.Remove(Selection);
         foreach (var id in Selection) thumbnails.Remove(id);
         Selection.Clear(); SaveHistory(); Changed?.Invoke();

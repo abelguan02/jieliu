@@ -94,7 +94,7 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
 {
     private readonly Model model;
     private readonly Action expand, collapse, settings;
-    private readonly List<(Capture Capture, Rect Rect)> hits = [];
+    private readonly List<(Capture Capture, Rect Rect, Geometry? Shape)> hits = [];
     private Point down;
     private bool pressed;
     private Guid? anchor;
@@ -105,7 +105,16 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     private readonly Dictionary<Guid, Rect> positions = [];
     private readonly Dictionary<Guid, Rect> origins = [];
     private readonly Dictionary<Guid, (Capture Capture, ImageSource? Image)> painted = [];
-    private readonly List<(Rect Rect, ImageSource? Image, double Start)> ghosts = [];
+    private sealed record Ghost(Capture Capture, Rect Rect, ImageSource? Image, double Start, string Style, bool Evicted, LayerPose? Pose);
+    private readonly List<Ghost> ghosts = [];
+    private readonly Dictionary<Guid, LayerPose> layerPoses = [], layerOrigins = [];
+    private readonly Motion spreadMotion = new();
+    private bool spread;
+    private double spreadLeave = double.PositiveInfinity;
+    private string previousStyle;
+    private readonly Dictionary<Guid, BufferArrival> bufferArrivals = [];
+    private readonly Dictionary<Guid, BufferEviction> bufferEvictions = [];
+    private double archivePulse;
     private readonly Dictionary<Guid, double> arrivals = [];
     private readonly List<(Capture Capture, Rect Rect)> incomingOverlay = [];
     private string layoutKey = "";
@@ -127,10 +136,12 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     public TraySurface(Model model, Action expand, Action collapse, Action settings)
     {
         this.model = model; this.expand = expand; this.collapse = collapse; this.settings = settings;
+        previousStyle = model.Settings.Style;
         animationTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(25) };
         animationTimer.Tick += (_, _) => { UpdateAnimationTimer(); InvalidateVisual(); };
         IsVisibleChanged += (_, _) => UpdateAnimationTimer();
-        MouseLeave += (_, _) => Hover(null);
+        MouseLeave += (_, _) => { Hover(null); spreadLeave = Motion.Now + .26; };
+        MouseEnter += (_, _) => { spreadLeave = double.PositiveInfinity; SetSpread(true); };
         Focusable = true; FocusVisualStyle = null;
         model.Changed += Refresh;
         MouseLeftButtonDown += Down;
@@ -148,40 +159,60 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     private void Refresh()
     {
         var key = model.Settings.Style + string.Join(",", model.History.Items.Select(c => c.Id));
+        if (previousStyle != model.Settings.Style)
+        {
+            VisualDiagnostics.Event("style-change-cancel-motion", model.Settings.Style, arrivals.Count);
+            arrivals.Clear(); bufferArrivals.Clear(); bufferEvictions.Clear(); ghosts.Clear();
+            origins.Clear(); layerOrigins.Clear(); layerPoses.Clear(); positions.Clear(); painted.Clear();
+        }
         if (key != layoutKey)
         {
             layoutStart = Motion.Now; layoutKey = key;
             origins.Clear(); foreach (var pair in positions) origins[pair.Key] = pair.Value;
+            layerOrigins.Clear(); foreach (var pair in layerPoses) layerOrigins[pair.Key] = pair.Value;
             var live = model.History.Items.Select(c => c.Id).ToHashSet();
             if (MotionEnabled && Reveal > 0.5)
                 foreach (var pair in painted.Where(p => !live.Contains(p.Key)))
-                    if (positions.TryGetValue(pair.Key, out var rect)) ghosts.Add((rect, pair.Value.Image, layoutStart));
+                    if (positions.TryGetValue(pair.Key, out var rect)) ghosts.Add(new(pair.Value.Capture, rect, pair.Value.Image, layoutStart, previousStyle, model.LastChangeWasCapture, layerPoses.TryGetValue(pair.Key, out var pose) ? pose : null));
             foreach (var id in positions.Keys.Where(id => !live.Contains(id)).ToArray())
-            { positions.Remove(id); painted.Remove(id); hoverMotion.Remove(id); arrivals.Remove(id); }
+            { positions.Remove(id); painted.Remove(id); hoverMotion.Remove(id); arrivals.Remove(id); bufferArrivals.Remove(id); layerPoses.Remove(id); }
+            previousStyle = model.Settings.Style;
         }
-        if (!MotionEnabled) { ghosts.Clear(); arrivals.Clear(); }
+        if (!MotionEnabled) { ghosts.Clear(); arrivals.Clear(); bufferArrivals.Clear(); bufferEvictions.Clear(); }
         UpdateAnimationTimer();
         ToolTip = model.Text("截图来源屏幕不可用，自动在鼠标所在屏幕展开", "Source display unavailable; new captures open on the pointer's display");
         InvalidateVisual();
     }
     public void Arrive(Capture capture)
     {
+        VisualDiagnostics.Event("capture-presentation", model.Settings.Style, model.History.Items.Count);
         if (MotionEnabled) arrivals[capture.Id] = Motion.Now + (Reveal < 0.95 ? 0.2 : 0);
         UpdateAnimationTimer(); InvalidateVisual();
     }
     private void UpdateAnimationTimer()
     {
+        if (IsMouseOver && Reveal > .05 && !Dragging) SetSpread(true);
+        if (Reveal <= .001 || (!IsMouseOver && Motion.Now >= spreadLeave)) SetSpread(false);
+        if (!MotionEnabled) spreadMotion.Retarget(spread ? 1 : 0, Motion.Now, 0);
         if (IsVisible && Reveal > 0.001 && MotionEnabled) animationTimer.Start(); else animationTimer.Stop();
+    }
+    private void SetSpread(bool value)
+    {
+        if (spread == value) return;
+        spread = value;
+        spreadMotion.Retarget(value ? 1 : 0, Motion.Now, MotionEnabled ? .55 : 0, t => HtmlMotion.Bezier(t, .3, 1.2, .4, 1));
+        InvalidateVisual();
     }
     private void Hover(Guid? id)
     {
         if (hovered == id) return;
-        foreach (var pair in hoverMotion) pair.Value.Retarget(0, Motion.Now, MotionEnabled ? 0.22 : 0);
+        foreach (var pair in hoverMotion) pair.Value.Retarget(0, Motion.Now, MotionEnabled ? (model.Settings.Style == "C" ? .55 : .22) : 0,
+            model.Settings.Style == "C" ? t => HtmlMotion.Bezier(t, .3, 1.2, .4, 1) : null);
         hovered = id;
         if (id is { } next)
         {
             if (!hoverMotion.TryGetValue(next, out var motion)) hoverMotion[next] = motion = new Motion();
-            motion.Retarget(1, Motion.Now, MotionEnabled ? 0.2 : 0);
+            motion.Retarget(1, Motion.Now, MotionEnabled ? 0.55 : 0, t => HtmlMotion.Bezier(t, .3, 1.2, .4, 1));
         }
         InvalidateVisual();
     }
@@ -191,11 +222,20 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     }
     protected override void OnRender(DrawingContext dc)
     {
+        using var diagnostic = VisualDiagnostics.Measure();
         hits.Clear();
         incomingOverlay.Clear();
         var p = Reveal;
         dc.PushClip(new RectangleGeometry(new Rect(0, 0, Width, Height)));
-        dc.DrawRoundedRectangle(Brushes.Black, new Pen(Dim, 0.6), new Rect(0, 0, Width, Height), 17 + 8 * p, 17 + 8 * p);
+        Brush backdrop = Brushes.Black;
+        if (model.Settings.Style == "C")
+            backdrop = new LinearGradientBrush(new GradientStopCollection
+            {
+                new(Color.FromArgb((byte)(255 - 80 * p), 6, 7, 10), 0),
+                new(Color.FromArgb((byte)(255 - 178 * p), 6, 7, 10), .6),
+                new(Color.FromArgb((byte)(255 * (1 - p)), 6, 7, 10), 1)
+            }, new Point(0, 0), new Point(0, 1));
+        dc.DrawRoundedRectangle(backdrop, model.Settings.Style == "C" ? null : new Pen(Dim, .6), new Rect(0, 0, Width, Height), 17 + 8 * p, 17 + 8 * p);
         if (p < 0.65)
         {
             dc.PushOpacity(Math.Max(0, 1 - p / 0.65));
@@ -212,6 +252,8 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         Text(dc, style switch { "A" => model.Text("截图标尺", "SCREENSHOT RULER"), "C" => model.Text("截图图层", "SCREENSHOT LAYERS"), _ => model.Text("截图缓冲区", "SCREENSHOT BUFFER") } + $" · {model.History.Items.Count}/8", 26, 12, 11, Muted);
         Text(dc, model.Text("设置", "SETTINGS") + "  ·  ×", 866, 12, 11, Muted);
         dc.DrawRoundedRectangle(Tile, new Pen(Dim, 0.5), new Rect(580, 7, 265, 22), 5, 5);
+        if (MotionEnabled && archivePulse > Motion.Now)
+            dc.DrawRoundedRectangle(null, new Pen(new SolidColorBrush(Color.FromArgb((byte)(180 * Math.Clamp((archivePulse - Motion.Now) / .32, 0, 1)), 255, 255, 255)), 1.5), new Rect(580, 7, 265, 22), 5, 5);
         Text(dc, model.Text("归档 → 截图文件夹", "FLUSH → Screenshots") + $"  {model.History.Total}", 590, 12, 10.5, Muted);
         var items = model.History.Items;
         if (style == "B")
@@ -222,7 +264,7 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
                 var rect = new Rect(26 + i * 120, 42, 108, 68);
                 Shot(dc, capture, rect);
                 Text(dc, $"0x{i:X2}", rect.X, 121, 10.5);
-                Text(dc, capture?.Created.ToString("HH:mm:ss") ?? "—", rect.X + 48, 121, 10, Muted);
+                Text(dc, capture is not null && bufferArrivals.TryGetValue(capture.Id, out var transfer) ? transfer.Status(Motion.Now) : capture?.Created.ToString("HH:mm:ss") ?? "—", rect.X + 48, 121, 10, Muted);
                 Text(dc, capture is null ? model.Text("空", "EMPTY") : $"{capture.Width}×{capture.Height}", rect.X, 139, 10.5, Dim);
                 if (i == model.History.WritePointer)
                 {
@@ -252,19 +294,49 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         }
         else
         {
-            for (var i = items.Count - 1; i >= 0; i--)
-            {
-                var x = 35 + i * 116; var y = 52 + (i % 2) * 10;
-                var rect = new Rect(x, y, 119, 88);
-                Shot(dc, items[i], rect);
-                Text(dc, items[i].Created.ToString("HH:mm:ss"), x, y + 96, 10, Muted);
-            }
+            // Newest on top; hovered and flying layers are brought above the stack.
+            foreach (var capture in items.AsEnumerable().Reverse().OrderBy(c => arrivals.ContainsKey(c.Id) ? 2 : hovered == c.Id ? 1 : 0)) DrawLayer(dc, capture);
+            dc.PushOpacity(Math.Clamp(spreadMotion.Value(Motion.Now), 0, 1));
+            foreach (var capture in items)
+                if (layerPoses.TryGetValue(capture.Id, out var pose))
+                {
+                    dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(205, 12, 14, 18)), null, new Rect(pose.X - 34, 160, 68, 21), 5, 5);
+                    Text(dc, capture.Created.ToString("HH:mm:ss"), pose.X - 28, 164, 10);
+                }
+            dc.Pop();
+            if (spreadMotion.Value(Motion.Now) < .9) Text(dc, model.Text($"{items.Count} 个图层", $"{items.Count} LAYERS"), 454, 164, 11, Muted);
         }
         Text(dc, model.Text("拖出原图  ·  空格预览  ·  Delete 移出并保留文件", "DRAG ORIGINAL  ·  SPACE PREVIEW  ·  DELETE REMOVES FROM TRAY"), 26, 181, 10, Dim);
         if (!string.IsNullOrEmpty(model.LastError)) Text(dc, model.Text("! 设置中查看错误", "! SEE SETTINGS"), 830, 181, 10, Brushes.Orange);
         foreach (var incoming in incomingOverlay) Shot(dc, incoming.Capture, incoming.Rect, true);
         foreach (var ghost in ghosts.ToArray())
         {
+            if (ghost.Style == "B")
+            {
+                var age = Motion.Now - ghost.Start;
+                if (!ghost.Evicted) { ghosts.Remove(ghost); continue; }
+                if (!bufferEvictions.TryGetValue(ghost.Capture.Id, out var effect) && ghost.Image is System.Windows.Media.Imaging.BitmapSource bitmap)
+                {
+                    try { bufferEvictions[ghost.Capture.Id] = effect = new(ghost.Capture, bitmap, ghost.Rect); }
+                    catch (Exception ex) when (ex is NotSupportedException or ArgumentException or System.Runtime.InteropServices.COMException)
+                    { VisualDiagnostics.Event("buffer-eviction-sampling-failed", "B", 0); model.Error(model.Text("移出粒子采样失败：", "Eviction sampling failed: ") + ex.Message); }
+                }
+                if (effect is null || age >= effect.End)
+                { ghosts.Remove(ghost); bufferEvictions.Remove(ghost.Capture.Id); archivePulse = Motion.Now + .32; }
+                else effect.Draw(dc, age);
+                continue;
+            }
+            if (ghost.Style == "C" && ghost.Pose is { } pose)
+            {
+                var age = Motion.Now - ghost.Start;
+                var duration = ghost.Evicted ? HtmlMotion.LayerEviction : HtmlMotion.LayerRemoval;
+                var phase = Math.Clamp(age / duration, 0, 1);
+                if (phase >= 1) { ghosts.Remove(ghost); if (ghost.Evicted) archivePulse = Motion.Now + .32; continue; }
+                var qC = HtmlMotion.Bezier(phase, .55, 0, .2, 1);
+                var final = pose with { X = 712, Y = 17, Scale = .15 };
+                LayerDrawing.Draw(dc, ghost.Evicted ? LayerPose.Lerp(pose, final, qC) : pose, ghost.Image, false, Motion.Now, 1 - (ghost.Evicted ? qC : phase), MotionEnabled);
+                continue;
+            }
             var t = (Motion.Now - ghost.Start) / 0.42;
             if (t >= 1) { ghosts.Remove(ghost); continue; }
             var q = Motion.Ease(t);
@@ -276,8 +348,54 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         dc.Pop(); dc.Pop(); dc.Pop();
     }
     private static Rect Blend(Rect a, Rect b, double t) => new(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t, a.Width + (b.Width - a.Width) * t, a.Height + (b.Height - a.Height) * t);
+    private void DrawLayer(DrawingContext dc, Capture capture)
+    {
+        var now = Motion.Now; var index = model.History.Items.IndexOf(capture);
+        const double stageScale = 1000.0 / 1440;
+        var fit = Math.Min(184.0 / capture.Width, 112.0 / capture.Height) * stageScale;
+        var gap = (24 + 104 * spreadMotion.Value(now)) * stageScale;
+        var target = new LayerPose(500 + (index - (model.History.Items.Count - 1) / 2.0) * gap, 108, capture.Width * fit, capture.Height * fit);
+        if (MotionEnabled && layerOrigins.TryGetValue(capture.Id, out var origin) && now - layoutStart < .55)
+            target = LayerPose.Lerp(origin, target, HtmlMotion.Bezier((now - layoutStart) / .55, .3, 1.2, .4, 1));
+        var hovering = hoverMotion.TryGetValue(capture.Id, out var motion) && spread ? motion.Value(now) : 0;
+        target = target with { RotateX = -16 * (1 - hovering), RotateY = -48 * (1 - hovering), Scale = 1 + .12 * hovering };
+        var flying = false;
+        if (MotionEnabled && arrivals.TryGetValue(capture.Id, out var start))
+        {
+            flying = now - start < HtmlMotion.LayerArrival;
+            var source = target with { X = 500, Y = 112, RotateX = 0, RotateY = 0, Scale = Math.Min(240 / target.Width, 118 / target.Height) };
+            target = HtmlMotion.Land(source, target, now - start);
+            if (!flying) { arrivals.Remove(capture.Id); VisualDiagnostics.Event("layer-settled", "C", 1); }
+        }
+        var image = model.Image(capture);
+        LayerDrawing.Draw(dc, target, image, model.Selection.Contains(capture.Id), now, 1, MotionEnabled);
+        var shape = LayerDrawing.Shape(target);
+        layerPoses[capture.Id] = target; positions[capture.Id] = shape.Bounds; painted[capture.Id] = (capture, image);
+        if (Expanded && !flying) hits.Add((capture, shape.Bounds, shape));
+    }
+    private Capture? Hit(Point point) => hits.LastOrDefault(h => h.Shape?.FillContains(point) ?? h.Rect.Contains(point)).Capture;
     private void Shot(DrawingContext dc, Capture? capture, Rect rect, bool overlay = false)
     {
+        if (capture is not null && model.Settings.Style == "B" && MotionEnabled && arrivals.TryGetValue(capture.Id, out var startB))
+        {
+            if (!bufferArrivals.TryGetValue(capture.Id, out var buffer) && model.Image(capture) is { } bitmap)
+            {
+                try { bufferArrivals[capture.Id] = buffer = new(capture, bitmap, rect, startB); }
+                catch (Exception ex) when (ex is NotSupportedException or ArgumentException or System.Runtime.InteropServices.COMException)
+                {
+                    VisualDiagnostics.Event("buffer-sampling-failed", "B", 0);
+                    model.Error(model.Text("像素采样失败：", "Pixel sampling failed: ") + ex.Message);
+                }
+            }
+            if (buffer is not null && Motion.Now < buffer.End)
+            {
+                if (overlay) buffer.Draw(dc, Motion.Now);
+                else { dc.DrawRoundedRectangle(Tile, new Pen(Dim, .6), rect, 4, 4); incomingOverlay.Add((capture, rect)); }
+                positions[capture.Id] = rect; painted[capture.Id] = (capture, model.Image(capture)); return;
+            }
+            arrivals.Remove(capture.Id); bufferArrivals.Remove(capture.Id);
+            if (buffer is not null) VisualDiagnostics.Event("buffer-settled", "B", 1);
+        }
         if (!overlay && capture is not null && MotionEnabled && arrivals.TryGetValue(capture.Id, out var began) && Motion.Now < began + 0.78)
         {
             dc.DrawRoundedRectangle(Tile, new Pen(Dim, 0.6), rect, 4, 4);
@@ -295,12 +413,6 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
                 if (arrival >= 1) arrivals.Remove(capture.Id);
             }
             var hover = hoverMotion.TryGetValue(capture.Id, out var motion) ? motion.Value(Motion.Now) : 0;
-            if (model.Settings.Style == "C")
-            {
-                var unfold = MotionEnabled ? Motion.Ease((Reveal - 0.3) / 0.7) : 1;
-                rect = Blend(new Rect(450 + model.History.Items.IndexOf(capture) * 10, 45, 100, 95), rect, unfold);
-                rect.Y -= hover * 7;
-            }
             rect.Inflate(hover * 3, hover * 3);
             positions[capture.Id] = rect;
         }
@@ -323,7 +435,7 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         }
         painted[capture.Id] = (capture, model.Image(capture));
         dc.Pop();
-        if (Expanded && arrival > 0.85) hits.Add((capture, rect));
+        if (Expanded && arrival > 0.85) hits.Add((capture, rect, null));
     }
     private static void Corners(DrawingContext dc, Rect r, Brush color)
     {
@@ -363,7 +475,7 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
             return;
         }
         if (down.Y < 32 && down.X > 850) { if (down.X > 945) collapse(); else settings(); return; }
-        var capture = hits.LastOrDefault(h => h.Rect.Contains(down)).Capture;
+        var capture = Hit(down);
         if (capture is null) { model.Selection.Clear(); model.Notify(); return; }
         if (!model.Selection.Contains(capture.Id) || Keyboard.Modifiers != ModifierKeys.None) Select(capture);
         else selectOnRelease = capture;
@@ -372,7 +484,7 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     }
     private void Move(object sender, MouseEventArgs e)
     {
-        if (!Dragging) Hover(hits.LastOrDefault(h => h.Rect.Contains(e.GetPosition(this))).Capture?.Id);
+        if (!Dragging) Hover(Hit(e.GetPosition(this))?.Id);
         if (!pressed || e.LeftButton != MouseButtonState.Pressed) return;
         var delta = e.GetPosition(this) - down;
         if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance) return;

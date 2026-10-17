@@ -27,10 +27,10 @@ internal sealed class Program : Application
     [STAThread]
     public static void Main(string[] args)
     {
-        if (args.Contains("--self-check"))
+        if (args.Contains("--self-check") || args.Contains("--render-check"))
         {
             _ = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            try { SelfChecks.Run(); }
+            try { VisualRenderChecks.Run(); if (args.Contains("--self-check")) SelfChecks.Run(); }
             catch (Exception ex) { Console.Error.WriteLine(ex); Environment.ExitCode = 1; }
             return;
         }
