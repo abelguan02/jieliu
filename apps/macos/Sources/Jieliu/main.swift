@@ -73,8 +73,9 @@ final class AppDelegate:NSObject,NSApplicationDelegate {
 }
 
 let application=NSApplication.shared
-application.setActivationPolicy(.accessory)
+application.setActivationPolicy(CommandLine.arguments.contains("--offscreen-check") || CommandLine.arguments.contains("--render-icon") ? .prohibited : .accessory)
 Fonts.register()
+if CommandLine.arguments.contains("--offscreen-check") { try OffscreenChecks.run(); exit(0) }
 if let index=CommandLine.arguments.firstIndex(of:"--render-icon"),CommandLine.arguments.indices.contains(index+1) {
     try AppIcon.write(to:URL(fileURLWithPath:CommandLine.arguments[index+1])); exit(0)
 }

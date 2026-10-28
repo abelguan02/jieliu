@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/ModuleCache"
 configuration="${CONFIGURATION:-release}"
-app="$PWD/dist/截留.app"
+app="${APP_OUTPUT:-$PWD/dist/截留.app}"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 if [[ "${UNIVERSAL:-0}" == 1 ]]; then
     for architecture in arm64 x86_64; do

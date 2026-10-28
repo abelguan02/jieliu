@@ -3,16 +3,27 @@ import AppKit
 enum Ink {
     static let guide = color(0x30d5f7), red = color(0xff3b5c), green = color(0x2be38c), blue = color(0x3d7bff)
     static let foreground = color(0xe8eaee), muted = color(0x8b919c)
+    private static func font(_ size:CGFloat,weight:NSFont.Weight = .medium)->NSFont {
+        NSFont(name:"GeistMono-Medium",size:size) ?? NSFont.monospacedSystemFont(ofSize:size,weight:weight)
+    }
     static func textWidth(_ string:String,size:CGFloat=11)->CGFloat {
-        let font=NSFont(name:"GeistMono-Medium",size:size) ?? NSFont.monospacedSystemFont(ofSize:size,weight:.medium)
-        return ceil((string as NSString).size(withAttributes:[.font:font]).width)
+        ceil((string as NSString).size(withAttributes:[.font:font(size)]).width)
     }
     static func color(_ hex: Int, _ alpha: CGFloat = 1) -> NSColor {
         NSColor(srgbRed: CGFloat((hex >> 16) & 255)/255, green: CGFloat((hex >> 8) & 255)/255, blue: CGFloat(hex & 255)/255, alpha: alpha)
     }
-    static func text(_ string: String, _ x: CGFloat, _ y: CGFloat, size: CGFloat = 11, color: NSColor = foreground, weight: NSFont.Weight = .medium) {
-        let font = NSFont(name: "GeistMono-Medium", size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: weight)
-        (string as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: [.font: font, .foregroundColor: color])
+    static func text(_ string: String, _ x: CGFloat, _ y: CGFloat, size: CGFloat = 11, color: NSColor = foreground, weight: NSFont.Weight = .medium, alignment:NSTextAlignment = .left) {
+        let font=font(size,weight:weight)
+        let width=(string as NSString).size(withAttributes:[.font:font]).width
+        let left=x-(alignment == .right ? width : alignment == .center ? width/2 : 0)
+        (string as NSString).draw(at: NSPoint(x:left,y:y),withAttributes:[.font:font,.foregroundColor:color])
+    }
+    static func text(_ string:String,in rect:CGRect,size:CGFloat=11,color:NSColor=foreground,alignment:NSTextAlignment = .left) {
+        let paragraph=NSMutableParagraphStyle()
+        paragraph.alignment=alignment; paragraph.lineBreakMode = .byTruncatingMiddle
+        NSGraphicsContext.saveGraphicsState(); NSBezierPath(rect:rect).addClip()
+        (string as NSString).draw(in:rect,withAttributes:[.font:font(size),.foregroundColor:color,.paragraphStyle:paragraph])
+        NSGraphicsContext.restoreGraphicsState()
     }
     static func box(_ rect: CGRect, color: NSColor, radius: CGFloat = 0, stroke: NSColor? = nil) {
         let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)

@@ -30,6 +30,9 @@ final class AppModel: ObservableObject {
     @Published var concept: Concept { didSet { defaults.set(concept.rawValue, forKey: "concept"); onChange?() } }
     @Published var autoHide: Bool { didSet { defaults.set(autoHide, forKey: "autoHide") } }
     @Published var sound: Bool { didSet { defaults.set(sound, forKey: "sound") } }
+    @Published var animations: Bool { didSet { defaults.set(animations,forKey:"animations"); onChange?() } }
+    var reduceMotion:()->Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    var motionEnabled:Bool { animations && !reduceMotion() }
     @Published var lastError = ""
     @Published var destination: URL
     var selection = Set<UUID>()
@@ -51,6 +54,7 @@ final class AppModel: ObservableObject {
         concept = Concept(rawValue: defaults.string(forKey: "concept") ?? "B") ?? .buffer
         autoHide = defaults.object(forKey: "autoHide") as? Bool ?? true
         sound = defaults.bool(forKey: "sound")
+        animations = defaults.object(forKey:"animations") as? Bool ?? true
         destination = URL(fileURLWithPath: defaults.string(forKey: "destination") ?? NSHomeDirectory() + "/Pictures/Screenshots")
         historyURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Jieliu/history.json")
         if !demo, FileManager.default.fileExists(atPath: historyURL.path) {

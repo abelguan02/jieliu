@@ -31,14 +31,14 @@ Package.swift            macOS Swift Package 入口
 在 macOS 安装 Xcode Command Line Tools，在仓库根目录执行：
 
 ```sh
-bash scripts/check.sh
+bash scripts/macos-background-check.sh
 bash scripts/build.sh
 # 同时生成 Apple Silicon 与 Intel 二进制
 UNIVERSAL=1 bash scripts/build.sh
 bash scripts/package-local.sh
 ```
 
-应用生成于 `dist/截留.app`。完整集成检查需要可用的图形桌面会话。
+构建默认输出到 `dist/截留.app`，可通过 `APP_OUTPUT` 指定临时打包位置。本机更新安装到 `/Applications/截留.app`；验证成功后仅保留带版本号的 ZIP 备份，清除额外 `.app` 副本。后台回归使用 `bash scripts/macos-background-check.sh`；完整集成检查会打开窗口，需事先取得当前空闲确认。
 
 - [macOS 使用说明与验收边界](docs/macos.md)
 - [Windows 客户端范围](apps/windows/README.md)

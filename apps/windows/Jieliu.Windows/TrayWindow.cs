@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Globalization;
 using System.Diagnostics;
 using System.IO;
@@ -25,6 +26,7 @@ internal sealed class TrayWindow : Window
     private DateTime leaveAt = DateTime.UtcNow;
     private DateTime holdUntil;
     private bool expanded;
+    private bool closed;
     public Forms.Screen Screen { get; }
     public TrayWindow(Model model, Forms.Screen screen, Action settings)
     {
@@ -48,7 +50,18 @@ internal sealed class TrayWindow : Window
             if ((model.Settings.AutoHide || model.Settings.MenuOnly) && DateTime.UtcNow > holdUntil && DateTime.UtcNow - leaveAt > TimeSpan.FromMilliseconds(650)) Collapse();
         };
         timer.Start();
-        Closed += (_, _) => { timer.Stop(); motionTimer.Stop(); surface.Dispose(); };
+        SystemParameters.StaticPropertyChanged += SystemMotionChanged;
+        Closed += (_, _) =>
+        {
+            closed = true;
+            SystemParameters.StaticPropertyChanged -= SystemMotionChanged;
+            timer.Stop(); motionTimer.Stop(); surface.Dispose();
+        };
+    }
+    private void SystemMotionChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not (null or "" or nameof(SystemParameters.ClientAreaAnimation))) return;
+        Dispatcher.BeginInvoke(() => { if (!closed) RefreshVisibility(); });
     }
     public void RefreshVisibility()
     {
@@ -90,7 +103,7 @@ internal sealed class TrayWindow : Window
     }
 }
 
-internal sealed class TraySurface : FrameworkElement, IDisposable
+internal sealed partial class TraySurface : FrameworkElement, IDisposable
 {
     private readonly Model model;
     private readonly Action expand, collapse, settings;
@@ -101,6 +114,10 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     private PreviewWindow? preview;
     private ContextMenu? contextMenu;
     private Capture? selectOnRelease;
+    private Guid? pressedCapture;
+    private readonly Func<bool> systemAnimations;
+    private readonly Func<double> clock;
+    private double Now => clock();
     private readonly DispatcherTimer animationTimer;
     private readonly Dictionary<Guid, Rect> positions = [];
     private readonly Dictionary<Guid, Rect> origins = [];
@@ -124,7 +141,7 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     private readonly Dictionary<Guid, Motion> hoverMotion = [];
     public bool Expanded { get; set; }
     public double Reveal { get => reveal; set { reveal = value; UpdateAnimationTimer(); } }
-    public bool MotionEnabled => model.Settings.Animations && SystemParameters.ClientAreaAnimation;
+    public bool MotionEnabled => model.Settings.Animations && systemAnimations();
     public bool Dragging { get; private set; }
     public bool PreviewOpen => preview?.IsVisible == true;
     public bool MenuOpen => contextMenu?.IsOpen == true;
@@ -133,23 +150,25 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     private static readonly Brush Tile = new SolidColorBrush(Color.FromRgb(10, 10, 11));
     private static readonly Typeface Mono = Fonts.Mono;
 
-    public TraySurface(Model model, Action expand, Action collapse, Action settings)
+    public TraySurface(Model model, Action expand, Action collapse, Action settings, Func<bool>? systemAnimations = null, Func<double>? clock = null)
     {
         this.model = model; this.expand = expand; this.collapse = collapse; this.settings = settings;
+        this.systemAnimations = systemAnimations ?? (() => SystemParameters.ClientAreaAnimation);
+        this.clock = clock ?? (() => Motion.Now);
         previousStyle = model.Settings.Style;
         animationTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(25) };
         animationTimer.Tick += (_, _) => { UpdateAnimationTimer(); InvalidateVisual(); };
         IsVisibleChanged += (_, _) => UpdateAnimationTimer();
-        MouseLeave += (_, _) => { Hover(null); spreadLeave = Motion.Now + .26; };
+        MouseLeave += (_, _) => { Hover(null); spreadLeave = Now + .26; };
         MouseEnter += (_, _) => { spreadLeave = double.PositiveInfinity; SetSpread(true); };
         Focusable = true; FocusVisualStyle = null;
         model.Changed += Refresh;
         MouseLeftButtonDown += Down;
         MouseLeftButtonUp += (_, _) =>
         {
-            pressed = false;
-            if (selectOnRelease is { } capture) Select(capture);
-            selectOnRelease = null;
+            var capture = selectOnRelease;
+            CancelPress();
+            if (capture is not null) Select(capture);
         };
         MouseMove += Move;
         KeyDown += Keys;
@@ -158,16 +177,26 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     }
     private void Refresh()
     {
+        var liveIds = model.History.Items.Select(c => c.Id).ToHashSet();
+        // A burst can evict an arrival before its first frame populated positions.
+        foreach (var id in arrivals.Keys.Where(id => !liveIds.Contains(id)).ToArray())
+        { arrivals.Remove(id); bufferArrivals.Remove(id); }
+        if (pressedCapture is { } downId && !liveIds.Contains(downId)) CancelPress();
+        if (selectOnRelease is { } pending && !liveIds.Contains(pending.Id)) CancelPress();
+        if (anchor is { } anchorId && !liveIds.Contains(anchorId)) anchor = null;
+        if (hovered is { } hoverId && !liveIds.Contains(hoverId)) Hover(null);
         var key = model.Settings.Style + string.Join(",", model.History.Items.Select(c => c.Id));
         if (previousStyle != model.Settings.Style)
         {
             VisualDiagnostics.Event("style-change-cancel-motion", model.Settings.Style, arrivals.Count);
             arrivals.Clear(); bufferArrivals.Clear(); bufferEvictions.Clear(); ghosts.Clear();
             origins.Clear(); layerOrigins.Clear(); layerPoses.Clear(); positions.Clear(); painted.Clear();
+            hoverMotion.Clear(); hovered = null; hits.Clear(); incomingOverlay.Clear(); CancelPress();
         }
         if (key != layoutKey)
         {
-            layoutStart = Motion.Now; layoutKey = key;
+            hits.Clear();
+            layoutStart = Now; layoutKey = key;
             origins.Clear(); foreach (var pair in positions) origins[pair.Key] = pair.Value;
             layerOrigins.Clear(); foreach (var pair in layerPoses) layerOrigins[pair.Key] = pair.Value;
             var live = model.History.Items.Select(c => c.Id).ToHashSet();
@@ -178,7 +207,6 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
             { positions.Remove(id); painted.Remove(id); hoverMotion.Remove(id); arrivals.Remove(id); bufferArrivals.Remove(id); layerPoses.Remove(id); }
             previousStyle = model.Settings.Style;
         }
-        if (!MotionEnabled) { ghosts.Clear(); arrivals.Clear(); bufferArrivals.Clear(); bufferEvictions.Clear(); }
         UpdateAnimationTimer();
         ToolTip = model.Text("截图来源屏幕不可用，自动在鼠标所在屏幕展开", "Source display unavailable; new captures open on the pointer's display");
         InvalidateVisual();
@@ -186,42 +214,57 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     public void Arrive(Capture capture)
     {
         VisualDiagnostics.Event("capture-presentation", model.Settings.Style, model.History.Items.Count);
-        if (MotionEnabled) arrivals[capture.Id] = Motion.Now + (Reveal < 0.95 ? 0.2 : 0);
+        if (MotionEnabled) arrivals[capture.Id] = Now + (Reveal < 0.95 ? 0.2 : 0);
         UpdateAnimationTimer(); InvalidateVisual();
     }
     private void UpdateAnimationTimer()
     {
         if (IsMouseOver && Reveal > .05 && !Dragging) SetSpread(true);
-        if (Reveal <= .001 || (!IsMouseOver && Motion.Now >= spreadLeave)) SetSpread(false);
-        if (!MotionEnabled) spreadMotion.Retarget(spread ? 1 : 0, Motion.Now, 0);
+        if (Reveal <= .001 || (!IsMouseOver && Now >= spreadLeave)) SetSpread(false);
+        if (!MotionEnabled)
+        {
+            ghosts.Clear(); arrivals.Clear(); bufferArrivals.Clear(); bufferEvictions.Clear(); incomingOverlay.Clear();
+            origins.Clear(); layerOrigins.Clear(); archivePulse = 0;
+            spreadMotion.Retarget(spread ? 1 : 0, Now, 0);
+            foreach (var pair in hoverMotion) pair.Value.Retarget(pair.Key == hovered ? 1 : 0, Now, 0);
+        }
         if (IsVisible && Reveal > 0.001 && MotionEnabled) animationTimer.Start(); else animationTimer.Stop();
     }
     private void SetSpread(bool value)
     {
         if (spread == value) return;
         spread = value;
-        spreadMotion.Retarget(value ? 1 : 0, Motion.Now, MotionEnabled ? .55 : 0, t => HtmlMotion.Bezier(t, .3, 1.2, .4, 1));
+        spreadMotion.Retarget(value ? 1 : 0, Now, MotionEnabled ? .55 : 0, t => HtmlMotion.Bezier(t, .3, 1.2, .4, 1));
         InvalidateVisual();
     }
     private void Hover(Guid? id)
     {
         if (hovered == id) return;
-        foreach (var pair in hoverMotion) pair.Value.Retarget(0, Motion.Now, MotionEnabled ? (model.Settings.Style == "C" ? .55 : .22) : 0,
+        foreach (var pair in hoverMotion) pair.Value.Retarget(0, Now, MotionEnabled ? (model.Settings.Style == "C" ? .55 : .22) : 0,
             model.Settings.Style == "C" ? t => HtmlMotion.Bezier(t, .3, 1.2, .4, 1) : null);
         hovered = id;
         if (id is { } next)
         {
             if (!hoverMotion.TryGetValue(next, out var motion)) hoverMotion[next] = motion = new Motion();
-            motion.Retarget(1, Motion.Now, MotionEnabled ? 0.55 : 0, t => HtmlMotion.Bezier(t, .3, 1.2, .4, 1));
+            motion.Retarget(1, Now, MotionEnabled ? 0.55 : 0, t => HtmlMotion.Bezier(t, .3, 1.2, .4, 1));
         }
         InvalidateVisual();
     }
-    private void Text(DrawingContext dc, string value, double x, double y, double size = 11, Brush? brush = null)
+    private void Text(DrawingContext dc, string value, double x, double y, double size = 11, Brush? brush = null,
+        TextAlignment alignment = TextAlignment.Left, double? maxWidth = null)
     {
-        dc.DrawText(new FormattedText(value, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, Mono, size, brush ?? Brushes.White, VisualTreeHelper.GetDpi(this).PixelsPerDip), new Point(x, y));
+        var text = new FormattedText(value, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, Mono, size,
+            brush ?? Brushes.White, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        if (maxWidth is { } width) { text.MaxTextWidth = width; text.MaxLineCount = 1; text.Trimming = TextTrimming.CharacterEllipsis; }
+        x -= alignment == TextAlignment.Right ? text.Width : alignment == TextAlignment.Center ? text.Width / 2 : 0;
+        if (maxWidth is { } clipWidth) dc.PushClip(new RectangleGeometry(new Rect(x, y, clipWidth, text.Height)));
+        dc.DrawText(text, new Point(x, y));
+        if (maxWidth is not null) dc.Pop();
     }
     protected override void OnRender(DrawingContext dc)
     {
+        // Also enforce the policy on a render already queued before a system change.
+        if (!MotionEnabled) UpdateAnimationTimer();
         using var diagnostic = VisualDiagnostics.Measure();
         hits.Clear();
         incomingOverlay.Clear();
@@ -252,8 +295,8 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         Text(dc, style switch { "A" => model.Text("截图标尺", "SCREENSHOT RULER"), "C" => model.Text("截图图层", "SCREENSHOT LAYERS"), _ => model.Text("截图缓冲区", "SCREENSHOT BUFFER") } + $" · {model.History.Items.Count}/8", 26, 12, 11, Muted);
         Text(dc, model.Text("设置", "SETTINGS") + "  ·  ×", 866, 12, 11, Muted);
         dc.DrawRoundedRectangle(Tile, new Pen(Dim, 0.5), new Rect(580, 7, 265, 22), 5, 5);
-        if (MotionEnabled && archivePulse > Motion.Now)
-            dc.DrawRoundedRectangle(null, new Pen(new SolidColorBrush(Color.FromArgb((byte)(180 * Math.Clamp((archivePulse - Motion.Now) / .32, 0, 1)), 255, 255, 255)), 1.5), new Rect(580, 7, 265, 22), 5, 5);
+        if (MotionEnabled && archivePulse > Now)
+            dc.DrawRoundedRectangle(null, new Pen(new SolidColorBrush(Color.FromArgb((byte)(180 * Math.Clamp((archivePulse - Now) / .32, 0, 1)), 255, 255, 255)), 1.5), new Rect(580, 7, 265, 22), 5, 5);
         Text(dc, model.Text("归档 → 截图文件夹", "FLUSH → Screenshots") + $"  {model.History.Total}", 590, 12, 10.5, Muted);
         var items = model.History.Items;
         if (style == "B")
@@ -264,11 +307,11 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
                 var rect = new Rect(26 + i * 120, 42, 108, 68);
                 Shot(dc, capture, rect);
                 Text(dc, $"0x{i:X2}", rect.X, 121, 10.5);
-                Text(dc, capture is not null && bufferArrivals.TryGetValue(capture.Id, out var transfer) ? transfer.Status(Motion.Now) : capture?.Created.ToString("HH:mm:ss") ?? "—", rect.X + 48, 121, 10, Muted);
+                Text(dc, capture is not null && bufferArrivals.TryGetValue(capture.Id, out var transfer) ? transfer.Status(Now) : capture?.Created.ToString("HH:mm:ss") ?? "—", rect.Right, 121, 10, Muted, TextAlignment.Right);
                 Text(dc, capture is null ? model.Text("空", "EMPTY") : $"{capture.Width}×{capture.Height}", rect.X, 139, 10.5, Dim);
                 if (i == model.History.WritePointer)
                 {
-                    dc.PushOpacity(!MotionEnabled ? 1 : 0.4 + 0.6 * (0.5 + 0.5 * Math.Sin(Motion.Now * Math.PI * 2)));
+                    dc.PushOpacity(!MotionEnabled ? 1 : 0.4 + 0.6 * (0.5 + 0.5 * Math.Sin(Now * Math.PI * 2)));
                     dc.DrawRectangle(Brushes.OrangeRed, null, new Rect(rect.X, 115, 36, 2));
                     dc.DrawRectangle(Brushes.LimeGreen, null, new Rect(rect.X + 36, 115, 36, 2));
                     dc.DrawRectangle(Brushes.DodgerBlue, null, new Rect(rect.X + 72, 115, 36, 2));
@@ -289,22 +332,24 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
                 var rect = new Rect(26 + i * 120, 63, 108, 77);
                 Shot(dc, items[i], rect);
                 dc.DrawLine(new Pen(Dim, 0.6), new Point(rect.X, 45), new Point(rect.X, 150));
-                Text(dc, $"{items[i].Width}×{items[i].Height}", rect.X, 151, 10.5, Muted);
+                Text(dc, $"{items[i].Width}×{items[i].Height}", rect.X, 151, 10.5, Muted, maxWidth: rect.Width);
             }
         }
         else
         {
             // Newest on top; hovered and flying layers are brought above the stack.
             foreach (var capture in items.AsEnumerable().Reverse().OrderBy(c => arrivals.ContainsKey(c.Id) ? 2 : hovered == c.Id ? 1 : 0)) DrawLayer(dc, capture);
-            dc.PushOpacity(Math.Clamp(spreadMotion.Value(Motion.Now), 0, 1));
+            dc.PushOpacity(Math.Clamp((spreadMotion.Value(Now) - .5) / .5, 0, 1));
             foreach (var capture in items)
-                if (layerPoses.TryGetValue(capture.Id, out var pose))
+                if (!arrivals.ContainsKey(capture.Id) && layerPoses.ContainsKey(capture.Id))
                 {
-                    dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(205, 12, 14, 18)), null, new Rect(pose.X - 34, 160, 68, 21), 5, 5);
-                    Text(dc, capture.Created.ToString("HH:mm:ss"), pose.X - 28, 164, 10);
+                    var caption = LayerCaptionRect(capture.Id);
+                    if (caption.Width <= 12) continue;
+                    dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(205, 12, 14, 18)), null, caption, 5, 5);
+                    Text(dc, capture.Created.ToString("HH:mm:ss"), caption.X + 6, 164, 10, maxWidth: caption.Width - 12);
                 }
             dc.Pop();
-            if (spreadMotion.Value(Motion.Now) < .9) Text(dc, model.Text($"{items.Count} 个图层", $"{items.Count} LAYERS"), 454, 164, 11, Muted);
+            if (spreadMotion.Value(Now) < .5) Text(dc, model.Text($"{items.Count} 个图层", $"{items.Count} LAYERS"), 500, 164, 11, Muted, TextAlignment.Center);
         }
         Text(dc, model.Text("拖出原图  ·  空格预览  ·  Delete 移出并保留文件", "DRAG ORIGINAL  ·  SPACE PREVIEW  ·  DELETE REMOVES FROM TRAY"), 26, 181, 10, Dim);
         if (!string.IsNullOrEmpty(model.LastError)) Text(dc, model.Text("! 设置中查看错误", "! SEE SETTINGS"), 830, 181, 10, Brushes.Orange);
@@ -313,7 +358,7 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         {
             if (ghost.Style == "B")
             {
-                var age = Motion.Now - ghost.Start;
+                var age = Now - ghost.Start;
                 if (!ghost.Evicted) { ghosts.Remove(ghost); continue; }
                 if (!bufferEvictions.TryGetValue(ghost.Capture.Id, out var effect) && ghost.Image is System.Windows.Media.Imaging.BitmapSource bitmap)
                 {
@@ -322,22 +367,22 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
                     { VisualDiagnostics.Event("buffer-eviction-sampling-failed", "B", 0); model.Error(model.Text("移出粒子采样失败：", "Eviction sampling failed: ") + ex.Message); }
                 }
                 if (effect is null || age >= effect.End)
-                { ghosts.Remove(ghost); bufferEvictions.Remove(ghost.Capture.Id); archivePulse = Motion.Now + .32; }
+                { ghosts.Remove(ghost); bufferEvictions.Remove(ghost.Capture.Id); archivePulse = Now + .32; }
                 else effect.Draw(dc, age);
                 continue;
             }
             if (ghost.Style == "C" && ghost.Pose is { } pose)
             {
-                var age = Motion.Now - ghost.Start;
+                var age = Now - ghost.Start;
                 var duration = ghost.Evicted ? HtmlMotion.LayerEviction : HtmlMotion.LayerRemoval;
                 var phase = Math.Clamp(age / duration, 0, 1);
-                if (phase >= 1) { ghosts.Remove(ghost); if (ghost.Evicted) archivePulse = Motion.Now + .32; continue; }
+                if (phase >= 1) { ghosts.Remove(ghost); if (ghost.Evicted) archivePulse = Now + .32; continue; }
                 var qC = HtmlMotion.Bezier(phase, .55, 0, .2, 1);
                 var final = pose with { X = 712, Y = 17, Scale = .15 };
-                LayerDrawing.Draw(dc, ghost.Evicted ? LayerPose.Lerp(pose, final, qC) : pose, ghost.Image, false, Motion.Now, 1 - (ghost.Evicted ? qC : phase), MotionEnabled);
+                LayerDrawing.Draw(dc, ghost.Evicted ? LayerPose.Lerp(pose, final, qC) : pose, ghost.Image, false, Now, 1 - (ghost.Evicted ? qC : phase), MotionEnabled);
                 continue;
             }
-            var t = (Motion.Now - ghost.Start) / 0.42;
+            var t = (Now - ghost.Start) / 0.42;
             if (t >= 1) { ghosts.Remove(ghost); continue; }
             var q = Motion.Ease(t);
             var rect = Blend(ghost.Rect, new Rect(720, 17, 8, 5), q);
@@ -347,10 +392,17 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         }
         dc.Pop(); dc.Pop(); dc.Pop();
     }
+    private Rect LayerCaptionRect(Guid id)
+    {
+        var pose = layerPoses[id];
+        var gap = layerPoses.Where(p => p.Key != id).Select(p => Math.Abs(p.Value.X - pose.X)).DefaultIfEmpty(80).Min();
+        var width = Math.Clamp(gap - 12, 0, 68);
+        return new Rect(pose.X - width / 2, 160, width, 21);
+    }
     private static Rect Blend(Rect a, Rect b, double t) => new(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t, a.Width + (b.Width - a.Width) * t, a.Height + (b.Height - a.Height) * t);
     private void DrawLayer(DrawingContext dc, Capture capture)
     {
-        var now = Motion.Now; var index = model.History.Items.IndexOf(capture);
+        var now = Now; var index = model.History.Items.IndexOf(capture);
         const double stageScale = 1000.0 / 1440;
         var fit = Math.Min(184.0 / capture.Width, 112.0 / capture.Height) * stageScale;
         var gap = (24 + 104 * spreadMotion.Value(now)) * stageScale;
@@ -371,9 +423,15 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         LayerDrawing.Draw(dc, target, image, model.Selection.Contains(capture.Id), now, 1, MotionEnabled);
         var shape = LayerDrawing.Shape(target);
         layerPoses[capture.Id] = target; positions[capture.Id] = shape.Bounds; painted[capture.Id] = (capture, image);
-        if (Expanded && !flying) hits.Add((capture, shape.Bounds, shape));
+        if (Reveal > .15) hits.Add((capture, shape.Bounds, shape));
     }
-    private Capture? Hit(Point point) => hits.LastOrDefault(h => h.Shape?.FillContains(point) ?? h.Rect.Contains(point)).Capture;
+    private Point ContentPoint(Point point) => new(point.X - (Width - 1000) / 2, point.Y + 18 * (1 - Reveal));
+    private Capture? Hit(Point point)
+    {
+        if (Reveal <= .15 || !new Rect(0, 0, Width, Height).Contains(point)) return null;
+        var content = ContentPoint(point);
+        return hits.LastOrDefault(h => h.Shape?.FillContains(content) ?? h.Rect.Contains(content)).Capture;
+    }
     private void Shot(DrawingContext dc, Capture? capture, Rect rect, bool overlay = false)
     {
         if (capture is not null && model.Settings.Style == "B" && MotionEnabled && arrivals.TryGetValue(capture.Id, out var startB))
@@ -387,16 +445,36 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
                     model.Error(model.Text("像素采样失败：", "Pixel sampling failed: ") + ex.Message);
                 }
             }
-            if (buffer is not null && Motion.Now < buffer.End)
+            if (buffer is not null && Now < buffer.End)
             {
-                if (overlay) buffer.Draw(dc, Motion.Now);
-                else { dc.DrawRoundedRectangle(Tile, new Pen(Dim, .6), rect, 4, 4); incomingOverlay.Add((capture, rect)); }
+                if (overlay)
+                {
+                    var frameTime = Now;
+                    buffer.Draw(dc, frameTime);
+                    if (Reveal > .15)
+                    {
+                        var shape = buffer.HitGeometry(frameTime);
+                        hits.Add((capture, shape.Bounds, shape));
+                    }
+                }
+                else
+                {
+                    dc.DrawRoundedRectangle(Tile, new Pen(Dim, .6), rect, 4, 4);
+                    if (model.Selection.Contains(capture.Id))
+                    {
+                        var border = rect; border.Inflate(4, 4);
+                        dc.DrawRectangle(null, new Pen(Brushes.White, 1.2) { DashStyle = DashStyles.Dash }, border);
+                        Corners(dc, border, Brushes.White);
+                    }
+                    if (Reveal > .15) hits.Add((capture, rect, null));
+                    incomingOverlay.Add((capture, rect));
+                }
                 positions[capture.Id] = rect; painted[capture.Id] = (capture, model.Image(capture)); return;
             }
             arrivals.Remove(capture.Id); bufferArrivals.Remove(capture.Id);
             if (buffer is not null) VisualDiagnostics.Event("buffer-settled", "B", 1);
         }
-        if (!overlay && capture is not null && MotionEnabled && arrivals.TryGetValue(capture.Id, out var began) && Motion.Now < began + 0.78)
+        if (!overlay && capture is not null && MotionEnabled && arrivals.TryGetValue(capture.Id, out var began) && Now < began + 0.78)
         {
             dc.DrawRoundedRectangle(Tile, new Pen(Dim, 0.6), rect, 4, 4);
             incomingOverlay.Add((capture, rect)); return;
@@ -404,15 +482,15 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         var arrival = 1.0;
         if (capture is not null)
         {
-            if (MotionEnabled && origins.TryGetValue(capture.Id, out var origin)) rect = Blend(origin, rect, Motion.Ease((Motion.Now - layoutStart) / 0.42));
+            if (MotionEnabled && origins.TryGetValue(capture.Id, out var origin)) rect = Blend(origin, rect, Motion.Ease((Now - layoutStart) / 0.42));
             if (MotionEnabled && arrivals.TryGetValue(capture.Id, out var start))
             {
-                arrival = Math.Clamp((Motion.Now - start) / 0.78, 0, 1);
+                arrival = Math.Clamp((Now - start) / 0.78, 0, 1);
                 // A visible miniature screenshot descends and settles into its slot.
                 rect = Blend(new Rect(428, 30, 144, 90), rect, Motion.Ease(arrival));
                 if (arrival >= 1) arrivals.Remove(capture.Id);
             }
-            var hover = hoverMotion.TryGetValue(capture.Id, out var motion) ? motion.Value(Motion.Now) : 0;
+            var hover = hoverMotion.TryGetValue(capture.Id, out var motion) ? motion.Value(Now) : 0;
             rect.Inflate(hover * 3, hover * 3);
             positions[capture.Id] = rect;
         }
@@ -430,12 +508,12 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         if (model.Selection.Contains(capture.Id))
         {
             var border = rect; border.Inflate(4, 4);
-            dc.DrawRectangle(null, new Pen(Brushes.White, 1.2) { DashStyle = new DashStyle(new double[] { 4, 3 }, MotionEnabled ? -Motion.Now * 14 % 7 : 0) }, border);
+            dc.DrawRectangle(null, new Pen(Brushes.White, 1.2) { DashStyle = new DashStyle(new double[] { 4, 3 }, MotionEnabled ? -Now * 14 % 7 : 0) }, border);
             Corners(dc, border, Brushes.White);
         }
         painted[capture.Id] = (capture, model.Image(capture));
         dc.Pop();
-        if (Expanded && arrival > 0.85) hits.Add((capture, rect, null));
+        if (Reveal > .15 && arrival > 0) hits.Add((capture, rect, null));
     }
     private static void Corners(DrawingContext dc, Rect r, Brush color)
     {
@@ -453,34 +531,32 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
     private void Select(Capture capture)
     {
         var modifiers = Keyboard.Modifiers;
-        if (modifiers.HasFlag(ModifierKeys.Shift) && anchor is { } first)
-        {
-            var ordered = Ordered(); var a = ordered.FindIndex(c => c.Id == first); var b = ordered.FindIndex(c => c.Id == capture.Id);
-            if (a >= 0) { for (var i = Math.Min(a, b); i <= Math.Max(a, b); i++) model.Selection.Add(ordered[i].Id); }
-            else model.Selection.Add(capture.Id);
-        }
-        else if (modifiers.HasFlag(ModifierKeys.Control))
-        { if (!model.Selection.Add(capture.Id)) model.Selection.Remove(capture.Id); anchor = capture.Id; }
-        else { model.Selection.Clear(); model.Selection.Add(capture.Id); anchor = capture.Id; }
-        model.Notify();
+        if (SelectionRules.Apply(Ordered().Select(c => c.Id).ToArray(), model.Selection, capture.Id,
+            ref anchor, modifiers.HasFlag(ModifierKeys.Shift), modifiers.HasFlag(ModifierKeys.Control))) model.Notify();
+    }
+    private void CancelPress()
+    {
+        pressed = false; pressedCapture = null; selectOnRelease = null;
     }
     private void Down(object sender, MouseButtonEventArgs e)
     {
-        Focus(); down = e.GetPosition(this);
-        if (!Expanded) { expand(); return; }
-        if (down.Y < 32 && down.X is > 580 and < 845)
+        CancelPress(); Focus(); down = e.GetPosition(this);
+        if (Reveal <= .15) { expand(); return; }
+        var content = ContentPoint(down);
+        var capture = Hit(down);
+        if (!Expanded) expand();
+        if (content.Y < 32 && content.X is > 580 and < 845)
         {
             try { Directory.CreateDirectory(model.Settings.Destination); Process.Start(new ProcessStartInfo(model.Settings.Destination) { UseShellExecute = true }); }
             catch (Exception ex) { model.Error(ex.Message); }
             return;
         }
-        if (down.Y < 32 && down.X > 850) { if (down.X > 945) collapse(); else settings(); return; }
-        var capture = Hit(down);
+        if (content.Y < 32 && content.X > 850) { if (content.X > 945) collapse(); else settings(); return; }
         if (capture is null) { model.Selection.Clear(); model.Notify(); return; }
         if (!model.Selection.Contains(capture.Id) || Keyboard.Modifiers != ModifierKeys.None) Select(capture);
         else selectOnRelease = capture;
-        pressed = true;
-        if (e.ClickCount == 2) { pressed = false; Preview(capture); }
+        pressed = true; pressedCapture = capture.Id;
+        if (e.ClickCount == 2) { CancelPress(); Preview(capture); }
     }
     private void Move(object sender, MouseEventArgs e)
     {
@@ -488,7 +564,7 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
         if (!pressed || e.LeftButton != MouseButtonState.Pressed) return;
         var delta = e.GetPosition(this) - down;
         if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance) return;
-        pressed = false; selectOnRelease = null; Dragging = true;
+        CancelPress(); Dragging = true;
         try { var data = Data(); if (data is not null) DragDrop.DoDragDrop(this, data, DragDropEffects.Copy); }
         catch (Exception ex) { model.Error(ex.Message); }
         finally { Dragging = false; }
@@ -532,10 +608,8 @@ internal sealed class TraySurface : FrameworkElement, IDisposable
             case Key.A: case Key.B: case Key.C: model.Settings.Style = e.Key.ToString(); model.SavePreferences(); break;
             case Key.Left: case Key.Right:
                 var items = Ordered(); if (items.Count == 0) break;
-                var current = items.FindIndex(c => c.Id == anchor);
-                var next = Math.Clamp(current + (e.Key == Key.Left ? -1 : 1), 0, items.Count - 1);
-                if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) model.Selection.Clear();
-                model.Selection.Add(items[next].Id); anchor = items[next].Id; model.Notify(); break;
+                SelectionRules.Move(items.Select(c=>c.Id).ToArray(),model.Selection,ref anchor,e.Key==Key.Left ? -1 : 1,Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
+                model.Notify(); break;
             default: return;
         }
         e.Handled = true;

@@ -8,7 +8,8 @@ try {
     dotnet publish apps/windows/Jieliu.Windows -c Release -r $Runtime --self-contained true -p:PublishSingleFile=false -o $output
     if ($LASTEXITCODE -ne 0) { throw 'Windows publish failed' }
     Copy-Item apps/windows/PORTABLE-README.txt (Join-Path $output 'README.txt')
-    Copy-Item docs/windows-acceptance-0.1.2.md (Join-Path $output 'ACCEPTANCE.txt')
+    Copy-Item ("docs/windows-acceptance-" + $version + ".md") (Join-Path $output 'ACCEPTANCE.txt')
+    Copy-Item apps/windows/BACKGROUND-CHECK.cmd (Join-Path $output 'BACKGROUND-CHECK.cmd')
     Copy-Item design/concepts.html (Join-Path $output 'REFERENCE.html')
     Compress-Archive -Path "$output/*" -DestinationPath "$output.zip" -Force
     Write-Host "Portable build: $output.zip (unsigned; Windows validation required)"

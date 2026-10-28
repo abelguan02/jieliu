@@ -13,18 +13,28 @@ final class TrayController {
     var screens:[NSScreen]=[]
     private var timer:Timer?
     private var observer:NSObjectProtocol?
+    private var motionObserver:NSObjectProtocol?
+    private var currentConcept:Concept
+    private var generation=0
     private var deadlines:[Int:Double]=[:]
     private var effects:[UUID:EffectWindow]=[:]
     private var waiting:[(Capture,Capture?)]=[]
     private var animating=false
+    private let playCaptureSound:()->Void
     let preview=PreviewController()
 
-    init(model:AppModel) {
-        self.model=model; rebuild()
-        observer=NotificationCenter.default.addObserver(forName:NSApplication.didChangeScreenParametersNotification,object:nil,queue:.main) { [weak self] _ in self?.rebuild() }
+    var pendingCount:Int { waiting.count }
+    init(model:AppModel,presentWindows:Bool=true,playCaptureSound:@escaping ()->Void = { NSSound(named:"Pop")?.play() }) {
+        self.model=model; currentConcept=model.concept
+        self.playCaptureSound=playCaptureSound
+        if presentWindows { rebuild() }
+        if presentWindows {
+            observer=NotificationCenter.default.addObserver(forName:NSApplication.didChangeScreenParametersNotification,object:nil,queue:.main) { [weak self] _ in self?.rebuild() }
+        }
         let timer=Timer(timeInterval:1/30,repeats:true) { [weak self] _ in self?.tick() }
-        self.timer=timer; RunLoop.main.add(timer,forMode:.common)
-        model.onChange = { [weak self] in self?.views.forEach { $0.needsDisplay=true } }
+        if presentWindows { self.timer=timer; RunLoop.main.add(timer,forMode:.common) }
+        model.onChange = { [weak self] in self?.synchronizeState() }
+        motionObserver=NSWorkspace.shared.notificationCenter.addObserver(forName:NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,object:nil,queue:.main) { [weak self] _ in self?.synchronizeState() }
         model.onEntryChange = { [weak self] in
             guard let self else { return }
             for (index,view) in self.views.enumerated() where !view.dragging && view.landing == nil && !self.preview.visible {
@@ -33,11 +43,31 @@ final class TrayController {
                 view.needsDisplay=true
             }
         }
-        model.onCapture = { [weak self] capture,old in self?.waiting.append((capture,old)); self?.nextCapture() }
+        model.onCapture = { [weak self] capture,old in
+            guard let self else { return }
+            if self.model.sound { self.playCaptureSound() }
+            self.waiting.append((capture,old)); self.nextCapture()
+        }
+    }
+    private func cancelEffects() {
+        generation += 1
+        effects.values.forEach { $0.cancel() }; effects.removeAll(); animating=false
+        views.forEach { $0.cancelMotion(); $0.needsDisplay=true }
+    }
+    func synchronizeState() {
+        let live=Set(model.history.items.map(\.id))
+        waiting.removeAll { !live.contains($0.0.id) }
+        if currentConcept != model.concept || !model.motionEnabled || effects.keys.contains(where:{!live.contains($0)}) {
+            cancelEffects(); currentConcept=model.concept
+            // Already-collected captures settle immediately; do not replay cancelled animations.
+            waiting.removeAll()
+        }
+        views.forEach { $0.synchronizeState(); $0.needsDisplay=true }
+        nextCapture()
     }
 
     func rebuild() {
-        effects.removeAll(); panels.forEach { $0.orderOut(nil) }; panels.removeAll(); views.removeAll(); deadlines.removeAll()
+        cancelEffects(); panels.forEach { $0.orderOut(nil) }; panels.removeAll(); views.removeAll(); deadlines.removeAll()
         screens=NSScreen.screens
         for (index,screen) in screens.enumerated() {
             let frame=CGRect(x:screen.frame.minX,y:screen.frame.maxY-270,width:screen.frame.width,height:270)
@@ -111,19 +141,19 @@ final class TrayController {
         animating=true; view.expanded=true; deadlines[index]=CACurrentMediaTime()+6.5
         if let old { view.evict(old) }
         view.needsDisplay=true; view.displayIfNeeded()
-        guard let target=view.destinationRect(for:capture),let image=model.image(capture),!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { animating=false; nextCapture(); return }
+        guard let target=view.destinationRect(for:capture),let image=model.image(capture),model.motionEnabled else { view.cancelMotion(); animating=false; nextCapture(); return }
         view.landing=capture.id
         let scale=view.scale
         let end=CGRect(x:target.minX*scale,y:target.minY*scale,width:target.width*scale,height:target.height*scale)
         let fitted=model.concept == .buffer ? Ink.fit(image.size,in:end) : end
         let start=source ?? CGRect(x:screens[index].frame.width/2-90,y:max(80,view.top+20),width:180,height:112)
         if source == nil { view.toast(model.text("位置元数据不可用，已收纳截图","Screenshot collected; position unavailable")) }
-        effects[capture.id]=EffectWindow(screen:screens[index],image:image,source:start,target:fitted,concept:model.concept,top:view.top*scale,onProgress:{ [weak view] in view?.landingProgress=$0 }) { [weak self,weak view] in
-            guard let self else { return }
+        let token=generation
+        effects[capture.id]=EffectWindow(screen:screens[index],image:image,source:start,target:fitted,concept:model.concept,top:view.top*scale,tray:view,captureID:capture.id,onProgress:{ [weak view] in view?.landingProgress=$0 }) { [weak self,weak view] in
+            guard let self,self.generation == token else { return }
             view?.landing=nil; view?.arrived[capture.id]=CACurrentMediaTime(); view?.needsDisplay=true; self.effects[capture.id]=nil; self.animating=false
-            if self.model.sound { NSSound(named:"Pop")?.play() }
             self.nextCapture()
         }
     }
-    deinit { timer?.invalidate(); if let observer { NotificationCenter.default.removeObserver(observer) } }
+    deinit { timer?.invalidate(); if let observer { NotificationCenter.default.removeObserver(observer) }; if let motionObserver { NSWorkspace.shared.notificationCenter.removeObserver(motionObserver) } }
 }

@@ -21,7 +21,7 @@ struct SettingsView:View {
                     Text(onboarding ? model.text("截下的每一张，都有落点。","A home for every screenshot.") : model.text("截图的收纳托盘","A tray for your screenshots")).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("1.0.0").font(.system(size:11,design:.monospaced)).foregroundStyle(.secondary)
+                Text(Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "1.0.3").font(.system(size:11,design:.monospaced)).foregroundStyle(.secondary)
             }
             Divider()
             HStack {
@@ -66,6 +66,7 @@ struct SettingsView:View {
             Toggle(model.text("鼠标离开后自动收起","Collapse when the pointer leaves"),isOn:$model.autoHide)
                 .disabled(model.entry == .menuBarOnly)
             Toggle(model.text("收纳音效","Capture sounds"),isOn:$model.sound)
+            Toggle(model.text("界面动效","Interface animations"),isOn:$model.animations)
             Toggle(model.text("登录时启动","Launch at login"),isOn:$state.launchAtLogin).onChange(of:state.launchAtLogin) { _, enabled in
                 do { if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() } }
                 catch { state.localError=model.text("登录启动设置失败：","Could not update launch at login: ")+error.localizedDescription; state.launchAtLogin=SMAppService.mainApp.status == .enabled }

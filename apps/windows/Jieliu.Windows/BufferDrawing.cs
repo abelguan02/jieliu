@@ -45,6 +45,31 @@ internal sealed class BufferArrival
     private int phase = -1;
     public double End => Start + Plan.End;
     public string Status(double now) => now < Start + Plan.ReadEnd ? "READ" : "WRITE";
+    public Geometry HitGeometry(double now)
+    {
+        var age = now - Start;
+        var geometry = new StreamGeometry { FillRule = FillRule.Nonzero };
+        using (var context = geometry.Open())
+        {
+            void Add(Rect r)
+            {
+                context.BeginFigure(r.TopLeft, true, true);
+                context.LineTo(r.TopRight, true, false); context.LineTo(r.BottomRight, true, false); context.LineTo(r.BottomLeft, true, false);
+            }
+            if (age >= 0 && age < PixelTransfer.ScanSeconds) Add(source);
+            else if (age >= PixelTransfer.ScanSeconds && age < Plan.ReadEnd)
+                foreach (var cell in Plan.Cells) Add(CellRect(cell, age));
+            else if (age >= Plan.ReadEnd) Add(target);
+        }
+        geometry.Freeze(); return geometry;
+    }
+    private Rect CellRect(PixelFlight cell, double age)
+    {
+        var t = age - PixelTransfer.ScanSeconds; var point = cell.At(t); var e = cell.Progress(t);
+        return new Rect(point.X, point.Y,
+            (source.Width + (target.Width - source.Width) * e) / Plan.Columns + .5,
+            (source.Height + (target.Height - source.Height) * e) / Plan.Rows + .5);
+    }
     public BufferArrival(Capture capture, BitmapSource image, Rect slot, double start)
     {
         this.image = image; Start = start; palette = new(image, capture.Width, capture.Height);
@@ -79,10 +104,7 @@ internal sealed class BufferArrival
         {
             foreach (var cell in Plan.Cells)
             {
-                var t = age - PixelTransfer.ScanSeconds; var point = cell.At(t); var e = cell.Progress(t);
-                var w = (source.Width + (target.Width - source.Width) * e) / Plan.Columns + .5;
-                var h = (source.Height + (target.Height - source.Height) * e) / Plan.Rows + .5;
-                dc.DrawRectangle(palette.Colors[cell.Row * Plan.Columns + cell.Column], null, new Rect(point.X, point.Y, w, h));
+                dc.DrawRectangle(palette.Colors[cell.Row * Plan.Columns + cell.Column], null, CellRect(cell, age));
             }
             return;
         }

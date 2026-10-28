@@ -19,6 +19,7 @@ internal static class VisualRenderChecks
     }
     public static void Run()
     {
+        ImageRegressionChecks.Run();
         var data = new byte[120 * 80 * 4];
         for (var y = 0; y < 80; y++) for (var x = 0; x < 120; x++)
         {
@@ -52,5 +53,6 @@ internal static class VisualRenderChecks
         var eviction = new BufferEviction(capture, image, slot);
         Check(Render(dc => eviction.Draw(dc, eviction.End)).All(b => b == 0), "Eviction particles did not terminate");
         Console.WriteLine("PASS: offscreen WPF C texture/hit geometry/hover/lift and B READ/WRITE/settling/eviction pixels");
+        TraySurface.RunRegressionChecks();
     }
 }

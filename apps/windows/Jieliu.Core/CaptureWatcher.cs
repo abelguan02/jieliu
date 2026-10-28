@@ -108,6 +108,11 @@ public sealed class CaptureWatcher : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            Report("Capture watcher stopped: "+ex.Message);
+            throw;
+        }
     }
 
     private void Process(string path)
@@ -131,15 +136,18 @@ public sealed class CaptureWatcher : IAsyncDisposable
             pending.Remove(path);
             Captured?.Invoke(new(Guid.NewGuid(), archived, new DateTime(stamp.Created, DateTimeKind.Utc).ToLocalTime(), width, height));
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Runtime.InteropServices.COMException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or ArgumentException or NotSupportedException or System.Runtime.InteropServices.COMException)
         { Report(ex.Message); }
     }
 
     public async ValueTask DisposeAsync()
     {
-        foreach (var watcher in watchers) watcher.Dispose();
-        await cancel.CancelAsync();
-        if (worker is not null) await worker;
-        signal.Dispose(); cancel.Dispose();
+        try
+        {
+            foreach (var watcher in watchers) watcher.Dispose();
+            await cancel.CancelAsync();
+            if (worker is not null) await worker;
+        }
+        finally { signal.Dispose(); cancel.Dispose(); }
     }
 }

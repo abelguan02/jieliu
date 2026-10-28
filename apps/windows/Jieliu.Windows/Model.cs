@@ -83,13 +83,18 @@ public sealed class Model
     {
         if (thumbnails.TryGetValue(capture.Id, out var image)) return image;
         try { return thumbnails[capture.Id] = LoadImage(capture.Path, 1000); }
-        catch (Exception ex) when (ex is IOException or NotSupportedException or System.Runtime.InteropServices.COMException) { LastError = ex.Message; return null; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or ArgumentException or NotSupportedException or System.Runtime.InteropServices.COMException) { LastError = ex.Message; return null; }
     }
-    public static BitmapImage LoadImage(string path, int width = 0)
+    public static BitmapImage LoadImage(string path, int maxEdge = 0)
     {
+        var size=maxEdge>0 ? Dimensions(path) : (0,0);
         using var stream = File.OpenRead(path);
         var image = new BitmapImage(); image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad;
-        if (width > 0) image.DecodePixelWidth = width;
+        if (maxEdge>0)
+        {
+            var thumbnail=ImageSizing.Thumbnail(size.Item1,size.Item2,maxEdge);
+            image.DecodePixelWidth=thumbnail.Width; image.DecodePixelHeight=thumbnail.Height;
+        }
         image.StreamSource = stream; image.EndInit(); image.Freeze(); return image;
     }
     public static (int, int) Dimensions(string path)
