@@ -22,6 +22,8 @@ internal sealed partial class TraySurface
             var pixels = Enumerable.Repeat((byte)255, 40 * 30 * 4).ToArray();
             var bitmap = BitmapSource.Create(40, 30, 96, 96, PixelFormats.Bgra32, null, pixels, 160);
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using var encoded = new MemoryStream(); encoder.Save(encoded);
+            var png = encoded.ToArray();
             var time = 100.0; var systemEnabled = true; var sequence = 0;
             using var surface = new TraySurface(model, () => { }, () => { }, () => { }, () => systemEnabled, () => time)
                 { Width = 1000, Height = 202, Expanded = true, Reveal = 1 };
@@ -29,7 +31,7 @@ internal sealed partial class TraySurface
             Capture Receive()
             {
                 var path = Path.Combine(root, $"{sequence++}.png");
-                using (var file = File.Create(path)) encoder.Save(file);
+                File.WriteAllBytes(path, png);
                 var capture = new Capture(Guid.NewGuid(), path, DateTime.UnixEpoch.AddSeconds(sequence), 40, 30);
                 model.Receive(capture); surface.Arrive(capture); return capture;
             }
