@@ -9,7 +9,7 @@
 
 默认取景框胶囊入口、B 帧缓冲展开样式，支持 A 标尺 / C 图层、中英文，以及仅系统托盘或菜单栏图标模式。
 
-开发分支新增 Pin：选中后按 P 或右键固定，容量维持 8 格；固定项不自动淘汰，优先填空槽，全部固定时新截图仍保存在文件夹并提示未入托盘。两端共用[历史行为用例](tests/fixtures/README.md)，Windows 构建和离屏回归由 [GitHub Actions](https://github.com/abelguan02/jieliu/actions/workflows/windows.yml) 执行。功能尚未打包为新的安装版本。
+开发分支新增 Pin：选中后按 P 或右键固定，容量维持 8 格；固定项不自动淘汰，优先填空槽，全部固定时新截图仍保存在文件夹并提示未入托盘。两端共用[历史行为用例](tests/fixtures/README.md)，Windows 构建和离屏回归由 [GitHub Actions](https://github.com/abelguan02/jieliu/actions/workflows/windows.yml) 执行。Mac 已打包并在本机安装 1.1.0（build 7，arm64）；Windows Pin 尚未更新便携包。
 
 ## 仓库结构
 
