@@ -1,7 +1,7 @@
 import AppKit
 import TrayCore
 
-final class TrayView: NSView, NSDraggingSource {
+final class TrayView: NSView, NSDraggingSource, NSMenuDelegate {
     let model: AppModel
     var onPreview: ((UUID) -> Void)?
     var onInteraction: (() -> Void)?
@@ -11,6 +11,7 @@ final class TrayView: NSView, NSDraggingSource {
     var hovering = false
     var hovered: UUID?
     var dragging = false
+    private(set) var menuOpen = false
     var landing: UUID?
     var landingProgress:CGFloat=0
     var arrived:[UUID:Double]=[:]
@@ -170,6 +171,7 @@ final class TrayView: NSView, NSDraggingSource {
             if let capture {
                 layout[capture.id] = r; orderedIDs.append(capture.id); registerHit(capture.id,CGPath(rect:r,transform:nil))
                 if capture.id != landing, let image = model.image(capture) { Ink.image(image,in:Ink.fit(image.size,in:r),alpha:dragging && model.selection.contains(capture.id) ? 0.3 : 1) }
+                if model.history.pinnedIDs.contains(capture.id) { Ink.pin(r) }
                 if model.selection.contains(capture.id) { Ink.selection(r,time:model.motionEnabled ? CACurrentMediaTime() : 0) }
                 Ink.text(capture.id == landing ? (landingProgress > 0.74 ? model.text("写入","WRITE") : model.text("读取","READ")) : Ink.clock(capture.date),r.maxX,top+87,size:10.5,color:capture.id == landing ? Ink.green : Ink.color(0x6d727b),alignment:.right)
                 Ink.text(dimensions(capture),left,top+103,size:10.5,color:Ink.color(0x555a63))
@@ -179,7 +181,7 @@ final class TrayView: NSView, NSDraggingSource {
                 Ink.text("—",r.maxX,top+87,size:10.5,color:Ink.color(0x6d727b),alignment:.right); Ink.text(model.text("空","Empty"),left,top+103,size:10.5,color:Ink.color(0x555a63))
             }
             Ink.text(String(format:"0x%02X",index),left,top+87,size:10.5,color:Ink.color(0xcfd2d8))
-            if index == model.history.writePointer && (Int(CACurrentMediaTime()*2)%2 == 0 || !model.motionEnabled) {
+            if index == model.history.nextWriteSlot && (Int(CACurrentMediaTime()*2)%2 == 0 || !model.motionEnabled) {
                 Ink.rgb(CGRect(x:left,y:top+81,width:108,height:2))
             }
         }
@@ -290,6 +292,7 @@ final class TrayView: NSView, NSDraggingSource {
         Ink.box(rect,color:.black,radius:3,stroke:hovered == capture.id && model.concept == .ruler ? Ink.guide : .white.withAlphaComponent(0.45))
         NSGraphicsContext.restoreGraphicsState()
         if let image=model.image(capture) { Ink.image(image,in:rect,alpha:openness*(dragging && model.selection.contains(capture.id) ? 0.3 : 1)) }
+        if model.history.pinnedIDs.contains(capture.id) { Ink.pin(rect) }
         if model.selection.contains(capture.id) { Ink.selection(rect,time:model.motionEnabled ? CACurrentMediaTime() : 0) }
     }
 
@@ -331,7 +334,7 @@ final class TrayView: NSView, NSDraggingSource {
             return layerPlacement(for:capture)?.path.boundingBox.offsetBy(dx:0,dy:-(1-openness)*200)
         }
     }
-    func toast(_ text:String) { message=text; messageUntil=CACurrentMediaTime()+2.4; needsDisplay=true }
+    func toast(_ text:String) { message=text; messageUntil=CACurrentMediaTime()+4; needsDisplay=true }
     func visibleContent(at p:CGPoint)->Bool {
         guard openness>0.001,CGRect(x:0,y:0,width:designWidth,height:bounds.height/scale).contains(p) else { return false }
         if model.concept == .buffer {
@@ -359,6 +362,28 @@ final class TrayView: NSView, NSDraggingSource {
         if visibleContent(at:p) && folderRect.contains(folderPoint) { model.openFolder(); return }
         guard let id=hit(p) else { expanded=true; return }
         beginPress(id,event:event)
+    }
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        return pinMenu(for: hit(CGPoint(x: point.x / scale, y: point.y / scale)))
+    }
+    func pinMenu(for id: UUID?) -> NSMenu? {
+        guard let id, model.history.items.contains(where: { $0.id == id }) else { return nil }
+        downID = nil; downEvent = nil
+        if !model.selection.contains(id) { model.selection = [id] }
+        keyboardCurrent = id; onInteraction?(); needsDisplay = true
+        let menu = NSMenu(); menu.autoenablesItems = false; menu.delegate = self
+        let title = model.selectionIsPinned ? model.text("取消固定", "Unpin") : model.text("固定", "Pin")
+        let item = NSMenuItem(title: title, action: #selector(applyPinMenu(_:)), keyEquivalent: "")
+        item.representedObject = !model.selectionIsPinned
+        item.target = self; menu.addItem(item)
+        return menu
+    }
+    func menuWillOpen(_ menu: NSMenu) { menuOpen = true; onInteraction?() }
+    func menuDidClose(_ menu: NSMenu) { menuOpen = false; onInteraction?() }
+    @objc func togglePins(_ sender: Any?) { model.toggleSelectedPins(); needsDisplay = true }
+    @objc func applyPinMenu(_ item: NSMenuItem) {
+        model.setSelectedPins(item.representedObject as! Bool); needsDisplay = true
     }
     func beginPress(_ id:UUID,event:NSEvent) {
         guard model.history.items.contains(where:{$0.id==id}) else { return }
@@ -432,7 +457,8 @@ final class TrayView: NSView, NSDraggingSource {
                     return
                 }
                 toast(model.text("已拷贝 \(urls.count) 张截图","Copied \(urls.count) screenshots"))
-            } else if event.modifierFlags.intersection([.command,.control,.option]).isEmpty,let key=event.charactersIgnoringModifiers?.uppercased(),let concept=Concept(rawValue:key) { model.concept=concept }
+            } else if event.modifierFlags.intersection([.command,.control,.option]).isEmpty,event.charactersIgnoringModifiers?.lowercased() == "p" { togglePins(nil) }
+            else if event.modifierFlags.intersection([.command,.control,.option]).isEmpty,let key=event.charactersIgnoringModifiers?.uppercased(),let concept=Concept(rawValue:key) { model.concept=concept }
             else { super.keyDown(with:event) }
         }
     }
@@ -454,8 +480,12 @@ final class TrayView: NSView, NSDraggingSource {
             let element=ShotAccessibility()
             element.setAccessibilityRole(.button)
             element.selected = { [weak self] in self?.model.selection.contains(capture.id) ?? false }
+            element.pinStatus = { [weak self] in
+                guard let self else { return nil }
+                return self.model.history.pinnedIDs.contains(capture.id) ? self.model.text("已固定", "Pinned") : nil
+            }
             element.setAccessibilityLabel(model.text("\(capture.url.lastPathComponent)，\(capture.width) 乘 \(capture.height) 像素","\(capture.url.lastPathComponent), \(capture.width) by \(capture.height) pixels"))
-            element.setAccessibilityHelp(model.text("按下以选中，空格预览，Delete 从托盘移出并保留文件。","Press to select, Space to preview, Delete to remove from the tray while keeping the file."))
+            element.setAccessibilityHelp(model.text("按下以选中，P 固定或取消固定，空格预览，Delete 移出并保留文件。","Press to select, P to pin or unpin, Space to preview, Delete to remove while keeping the file."))
             element.setAccessibilityParent(self)
             let local=CGRect(x:r.minX*scale,y:r.minY*scale,width:r.width*scale,height:r.height*scale)
             if let window { element.setAccessibilityFrame(window.convertToScreen(convert(local,to:nil))) }
@@ -472,6 +502,8 @@ final class TrayView: NSView, NSDraggingSource {
 final class ShotAccessibility:NSAccessibilityElement {
     var press:(()->Void)?
     var selected:(()->Bool)?
+    var pinStatus:(()->String?)?
+    override func accessibilityValue()->Any? { pinStatus?() }
     override func isAccessibilitySelected()->Bool { selected?() ?? false }
     override func accessibilityPerformPress()->Bool { press?(); return true }
 }

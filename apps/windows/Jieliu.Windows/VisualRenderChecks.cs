@@ -20,6 +20,7 @@ internal static class VisualRenderChecks
     public static void Run()
     {
         ImageRegressionChecks.Run();
+        TraySurface.RunPinChecks();
         var data = new byte[120 * 80 * 4];
         for (var y = 0; y < 80; y++) for (var x = 0; x < 120; x++)
         {

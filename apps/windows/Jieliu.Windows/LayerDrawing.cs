@@ -30,7 +30,7 @@ internal static class LayerDrawing
         var shape = new RectangleGeometry(new Rect(0, 0, pose.Width, pose.Height)) { Transform = new MatrixTransform(Matrix(pose)) };
         shape.Freeze(); return shape;
     }
-    public static void Draw(DrawingContext dc, LayerPose pose, ImageSource? image, bool selected, double now, double opacity = 1, bool motion = true)
+    public static void Draw(DrawingContext dc, LayerPose pose, ImageSource? image, bool selected, double now, double opacity = 1, bool motion = true, bool pinned = false)
     {
         dc.PushOpacity(Math.Clamp(opacity, 0, 1));
         // Soft projected shadow, without per-frame bitmap rasterization.
@@ -43,6 +43,7 @@ internal static class LayerDrawing
         var rect = new Rect(0, 0, pose.Width, pose.Height);
         dc.DrawRectangle(Checker, null, rect);
         if (image is not null) dc.DrawImage(image, rect);
+        if (pinned) PinDrawing.Draw(dc, rect);
         dc.DrawRectangle(null, new Pen(new SolidColorBrush(Color.FromArgb(150, 255, 255, 255)), .8), rect);
         if (selected)
         {

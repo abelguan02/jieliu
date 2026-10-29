@@ -51,6 +51,21 @@ enum Ink {
             box(CGRect(x:p.x-3,y:p.y-3,width:6,height:6),color:.white,stroke:.black)
         }
     }
+    static func pin(_ rect: CGRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let size = min(18, rect.width, rect.height)
+        context.saveGState()
+        context.translateBy(x: rect.minX, y: rect.minY)
+        context.scaleBy(x: size / 18, y: size / 18)
+        box(CGRect(x: 0, y: 0, width: 18, height: 18), color: .black, radius: 3, stroke: .white.withAlphaComponent(0.35))
+        let path = NSBezierPath()
+        path.move(to: CGPoint(x: 5, y: 3))
+        for (x, y) in [(13,3),(12,8),(15,11),(10,11),(10,15),(8,17),(8,11),(3,11),(6,8)] {
+            path.line(to: CGPoint(x: x, y: y))
+        }
+        path.close(); NSColor.white.setFill(); path.fill()
+        context.restoreGState()
+    }
     static func checker(_ rect: CGRect, cell: CGFloat = 8) {
         NSGraphicsContext.saveGraphicsState(); NSBezierPath(rect: rect).addClip()
         for row in 0...Int(rect.height/cell) { for col in 0...Int(rect.width/cell) {

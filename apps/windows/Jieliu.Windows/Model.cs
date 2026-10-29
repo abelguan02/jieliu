@@ -93,9 +93,12 @@ public sealed class Model
         }
     }
     public void ToggleSelectedPins()
+        => SetSelectedPins(!SelectionIsPinned);
+    public void SetSelectedPins(bool pinned)
     {
+        if (!History.Items.Any(c => Selection.Contains(c.Id))) return;
         LastChangeWasCapture = false;
-        History.SetPinned(Selection, !SelectionIsPinned);
+        History.SetPinned(Selection, pinned);
         SaveHistory(); Changed?.Invoke();
     }
     public BitmapSource? Image(Capture capture)

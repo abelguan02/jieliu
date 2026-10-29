@@ -99,7 +99,11 @@ final class AppModel: ObservableObject {
         return !live.isEmpty && live.isSubset(of: history.pinnedIDs)
     }
     func toggleSelectedPins() {
-        history.setPinned(selection, pinned: !selectionIsPinned)
+        setSelectedPins(!selectionIsPinned)
+    }
+    func setSelectedPins(_ pinned: Bool) {
+        guard !selection.intersection(history.items.map(\.id)).isEmpty else { return }
+        history.setPinned(selection, pinned: pinned)
         persist(); onChange?()
     }
     func persist() {

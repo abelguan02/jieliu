@@ -48,6 +48,13 @@ final class TrayController {
             if self.model.sound { self.playCaptureSound() }
             self.waiting.append((capture,old)); self.nextCapture()
         }
+        model.onNotice = { [weak self] message in
+            guard let self else { return }
+            let index = self.screens.firstIndex(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? 0
+            guard self.views.indices.contains(index) else { return }
+            self.views[index].expanded = true; self.views[index].toast(message)
+            self.deadlines[index] = CACurrentMediaTime() + 4.6
+        }
     }
     private func cancelEffects() {
         generation += 1
@@ -103,7 +110,7 @@ final class TrayController {
             if inside { view.expanded=true; deadlines[index]=CACurrentMediaTime()+1.8; view.pointer(p) }
             else { view.pointer(CGPoint(x:-100,y:-100)) }
             if !model.autoHide && model.entry == .capsule { view.expanded=true }
-            else if !inside,!view.dragging,!preview.visible,view.landing == nil,CACurrentMediaTime()>(deadlines[index] ?? 0) {
+            else if !inside,!view.dragging,!view.menuOpen,!preview.visible,view.landing == nil,CACurrentMediaTime()>(deadlines[index] ?? 0) {
                 view.expanded=false
                 if panels[index].isKeyWindow { panels[index].resignKey() }
             }
