@@ -132,6 +132,29 @@ internal sealed partial class TraySurface
             Check(surface.Hit(new Point(50, 20)) is null, "Collapsed capsule selected a hidden image");
             Check(model.History.Items.Count == 8 && Directory.GetFiles(root, "*.png").Length == sequence, "Burst lost original files or exceeded capacity");
             surface.CheckAlignment();
+            // Inspect the same in-memory payload used by copy and drag. Never call
+            // Clipboard.SetDataObject or start a drag from the background runner.
+            model.Selection.Clear();
+            Check(surface.Data() is null, "Empty selection produced clipboard data");
+            var selected = model.History.Items.Take(2).ToArray();
+            model.Selection.Add(selected[0].Id);
+            var single = surface.Data()!;
+            Check(single.GetFileDropList().Count == 1 && single.GetFileDropList()[0] == selected[0].Path, "Single copy lost its original path");
+            var original = single.GetImage();
+            Check(original.PixelWidth == 40 && original.PixelHeight == 30, "Single copy lost original image dimensions");
+            Check(single.GetData("PNG") is MemoryStream stream && stream.ToArray().SequenceEqual(File.ReadAllBytes(selected[0].Path)), "Single copy changed original PNG bytes");
+            model.Selection.Add(selected[1].Id);
+            var multiple = surface.Data()!;
+            Check(multiple.GetFileDropList().Cast<string>().ToHashSet().SetEquals(selected.Select(c => c.Path)), "Multiple copy lost file paths");
+            Check(!multiple.GetDataPresent(DataFormats.Bitmap, false) && !multiple.GetDataPresent("PNG", false), "Multiple copy unexpectedly supplied a single image");
+            model.Selection.Clear(); model.Selection.Add(Guid.NewGuid());
+            Check(surface.Data() is null, "Stale selection produced clipboard data");
+            model.Selection.Clear(); model.Selection.Add(selected[0].Id);
+            var held = selected[0].Path + ".held";
+            File.Move(selected[0].Path, held);
+            try { Check(surface.Data() is null, "Missing selected file produced clipboard data"); }
+            finally { File.Move(held, selected[0].Path); }
+            Console.WriteLine("PASS: empty/stale/missing copy selection, original PNG/bitmap single copy and file-list multiple copy without system clipboard access");
             Console.WriteLine("PASS: offscreen TraySurface eviction/selection, C flying hit, style switching, app/system motion cancellation, re-enable and burst");
         }
         finally { Directory.Delete(root, true); }

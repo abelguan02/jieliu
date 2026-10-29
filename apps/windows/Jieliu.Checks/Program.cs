@@ -14,6 +14,7 @@ var root = Path.Combine(Path.GetTempPath(), "jieliu-check-" + Guid.NewGuid().ToS
 VisualChecks.Run();
 SelectionChecks.Run();
 ImageSizingChecks.Run();
+await WatcherSchedulingChecks.Run();
 await WatcherRecoveryChecks.Run();
 var opening = new Motion(); opening.Retarget(1, 0, 0.46);
 Check(opening.Value(0) == 0 && opening.Value(0.2) > 0 && opening.Value(0.2) < 1, "Expansion must have intermediate frames");

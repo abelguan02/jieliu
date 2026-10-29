@@ -20,6 +20,8 @@ enum OffscreenChecks {
         AlignmentChecks.run(model)
         ReviewRegressionChecks.run(model)
         try CaptureInputChecks.run(root:root,preferences:defaults)
+        try CaptureRegressionChecks.run(root:root,preferences:defaults)
+        try CopyRoutingChecks.run(root:root,preferences:defaults)
         let bytes=DemoSupport.fixture(0)
         var shots:[Capture]=[]
         for i in 0..<40 {

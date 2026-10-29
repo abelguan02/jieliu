@@ -23,6 +23,7 @@ enum CaptureInputChecks {
         precondition(condition(),reason)
     }
     static func run(root:URL,preferences:UserDefaults) throws {
+        try delayedStartup(root:root)
         let directory=root.appendingPathComponent("input-check")
         let source=directory.appendingPathComponent("source"), archive=directory.appendingPathComponent("archive")
         try FileManager.default.createDirectory(at:source,withIntermediateDirectories:true)
@@ -53,5 +54,45 @@ enum CaptureInputChecks {
         precondition(captures.count==2 && errors.isEmpty)
         for capture in captures { precondition(try! Data(contentsOf:capture.url)==bytes) }
         print("PASS: native Mac tall/small thumbnail bounds and malformed screenshot preservation/continued input/recovery")
+    }
+
+    private static func delayedStartup(root:URL) throws {
+        let directory=root.appendingPathComponent("delayed-startup")
+        let source=directory.appendingPathComponent("source"),archive=directory.appendingPathComponent("archive")
+        try FileManager.default.createDirectory(at:source,withIntermediateDirectories:true)
+        defer { try? FileManager.default.removeItem(at:directory) }
+        let entered=DispatchSemaphore(value:0),release=DispatchSemaphore(value:0)
+        var initial=true
+        let watcher=ScreenshotWatcher(destination:archive,sourceOverride:[source],listDirectory:{ url in
+            if initial {
+                initial=false; entered.signal()
+                guard release.wait(timeout:.now()+5) == .success else {
+                    throw NSError(domain:"CaptureInputChecks",code:1,userInfo:[NSLocalizedDescriptionKey:"Initial directory listing was not released"])
+                }
+            }
+            return try FileManager.default.contentsOfDirectory(at:url,includingPropertiesForKeys:nil)
+        })
+        // Initialization is not the watch boundary: this file predates start().
+        let bytes=png(57,31),old=source.appendingPathComponent("old.png")
+        try bytes.write(to:old); try tag(old); spin(0.05)
+        var captures:[Capture]=[],errors:[String]=[]
+        watcher.onCapture={ captures.append($0) }; watcher.onError={ errors.append($0) }
+        watcher.start(); defer { release.signal(); watcher.stop() }
+        precondition(entered.wait(timeout:.now()+5) == .success,"Initial listing did not start")
+        // Model a desktop permission prompt holding the first directory listing.
+        let fresh=source.appendingPathComponent("during-permission.png")
+        let partial=source.appendingPathComponent("during-permission-partial.png")
+        try bytes.write(to:fresh); try tag(fresh); try Data().write(to:partial)
+        release.signal()
+        wait({captures.count==1},"Screenshot created while startup listing was blocked became an old-file baseline")
+        precondition(captures[0].url.lastPathComponent==fresh.lastPathComponent)
+        try bytes.write(to:partial); spin(0.5)
+        precondition(captures.count==1,"Unmarked startup image was collected prematurely")
+        try tag(partial)
+        wait({captures.count==2},"Startup candidate lost delayed write or metadata retry")
+        watcher.metadataArrived([old]+captures.map(\.url)); spin(0.4)
+        precondition(captures.count==2 && errors.isEmpty && FileManager.default.fileExists(atPath:old.path))
+        for capture in captures { precondition(try! Data(contentsOf:capture.url)==bytes) }
+        print("PASS: delayed initial directory access preserves old files, collects new screenshots once, and retries partial writes/late metadata")
     }
 }

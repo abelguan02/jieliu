@@ -29,14 +29,21 @@ final class TrayView: NSView, NSDraggingSource {
     private var pasteboardProviders:[CapturePasteboard]=[]
     private var accessibleShots:[ShotAccessibility]=[]
     private var outgoing: (Capture, CGRect, Double)?
-    private var message = ""
+    private(set) var message = ""
+    private let writeClipboard:([NSPasteboardWriting])->Bool
     private var messageUntil: Double = 0
     var scale: CGFloat { min(1, bounds.width / 1100) }
     var designWidth: CGFloat { bounds.width / scale }
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
-    init(model: AppModel) { self.model = model; super.init(frame: .zero); setAccessibilityLabel(model.text("截图收纳托盘","Screenshot tray")) }
+    init(model: AppModel, writeClipboard:@escaping ([NSPasteboardWriting])->Bool = { items in
+        NSPasteboard.general.clearContents()
+        return NSPasteboard.general.writeObjects(items)
+    }) {
+        self.model = model; self.writeClipboard = writeClipboard
+        super.init(frame: .zero); setAccessibilityLabel(model.text("截图收纳托盘","Screenshot tray"))
+    }
     required init?(coder: NSCoder) { fatalError() }
 
     func tick() {
@@ -402,7 +409,10 @@ final class TrayView: NSView, NSDraggingSource {
         onInteraction?()
         switch event.keyCode {
         case 49: if let id=model.history.items.first(where:{model.selection.contains($0.id)})?.id ?? hovered { onPreview?(id) }
-        case 51,117: let count=model.selection.count; model.removeSelection(); toast(model.text("已移出 \(count) 张，文件仍保留","Removed \(count) from tray; files kept"))
+        case 51,117:
+            let count=model.history.items.filter { model.selection.contains($0.id) }.count
+            guard count>0 else { return }
+            model.removeSelection(); toast(model.text("已移出 \(count) 张，文件仍保留","Removed \(count) from tray; files kept"))
         case 53: model.selection.removeAll(); keyboardCurrent=nil; window?.resignKey(); needsDisplay=true
         case 123,124:
             let ids=model.concept == .buffer ? model.history.slots.compactMap{$0} : model.history.items.map(\.id)
@@ -415,8 +425,13 @@ final class TrayView: NSView, NSDraggingSource {
         default:
             if event.modifierFlags.contains(.command),event.charactersIgnoringModifiers == "a" { model.selection=Set(model.history.items.map(\.id)); needsDisplay=true }
             else if event.modifierFlags.contains(.command),event.charactersIgnoringModifiers == "c" {
-                let urls=model.history.items.filter { model.selection.contains($0.id) }.map { $0.url as NSURL }
-                NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects(urls); toast(model.text("已拷贝 \(urls.count) 张截图","Copied \(urls.count) screenshots"))
+                let urls=model.history.items.filter { model.selection.contains($0.id) && FileManager.default.fileExists(atPath:$0.url.path) }.map(\.url)
+                guard !urls.isEmpty else { return }
+                guard writeClipboard(CapturePasteboard.copyItems(urls)) else {
+                    model.lastError=model.text("无法写入剪贴板，请重试。","Could not write to the clipboard. Please try again.")
+                    return
+                }
+                toast(model.text("已拷贝 \(urls.count) 张截图","Copied \(urls.count) screenshots"))
             } else if event.modifierFlags.intersection([.command,.control,.option]).isEmpty,let key=event.charactersIgnoringModifiers?.uppercased(),let concept=Concept(rawValue:key) { model.concept=concept }
             else { super.keyDown(with:event) }
         }
@@ -438,6 +453,7 @@ final class TrayView: NSView, NSDraggingSource {
             guard let r=layout[capture.id] else { return nil }
             let element=ShotAccessibility()
             element.setAccessibilityRole(.button)
+            element.selected = { [weak self] in self?.model.selection.contains(capture.id) ?? false }
             element.setAccessibilityLabel(model.text("\(capture.url.lastPathComponent)，\(capture.width) 乘 \(capture.height) 像素","\(capture.url.lastPathComponent), \(capture.width) by \(capture.height) pixels"))
             element.setAccessibilityHelp(model.text("按下以选中，空格预览，Delete 从托盘移出并保留文件。","Press to select, Space to preview, Delete to remove from the tray while keeping the file."))
             element.setAccessibilityParent(self)
@@ -455,5 +471,7 @@ final class TrayView: NSView, NSDraggingSource {
 
 final class ShotAccessibility:NSAccessibilityElement {
     var press:(()->Void)?
+    var selected:(()->Bool)?
+    override func isAccessibilitySelected()->Bool { selected?() ?? false }
     override func accessibilityPerformPress()->Bool { press?(); return true }
 }
