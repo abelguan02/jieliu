@@ -118,14 +118,27 @@ internal sealed partial class TraySurface
                 {
                     surface.Reveal = reveal; surface.Width = 164 + 836 * reveal; surface.Height = 34 + 168 * reveal;
                     Frame();
-                    var hit = surface.hits.First(h =>
+                    // During partial expansion a card can be visible while its center
+                    // is still clipped. Choose a pixel inside the visible geometry.
+                    Point? visible = null;
+                    var viewport = new Rect(0, 0, surface.Width, surface.Height);
+                    foreach (var hit in surface.hits.AsEnumerable().Reverse())
                     {
-                        var center = new Point(h.Rect.X + h.Rect.Width / 2 + (surface.Width - 1000) / 2,
-                            h.Rect.Y + h.Rect.Height / 2 - 18 * (1 - reveal));
-                        return new Rect(0, 0, surface.Width, surface.Height).Contains(center);
-                    });
-                    var point = new Point(hit.Rect.X + hit.Rect.Width / 2 + (surface.Width - 1000) / 2,
-                        hit.Rect.Y + hit.Rect.Height / 2 - 18 * (1 - reveal));
+                        var bounds = hit.Rect;
+                        bounds.Offset((surface.Width - 1000) / 2, -18 * (1 - reveal));
+                        bounds.Intersect(viewport);
+                        if (bounds.IsEmpty) continue;
+                        for (var y = bounds.Top + .5; y < bounds.Bottom && visible is null; y++)
+                            for (var x = bounds.Left + .5; x < bounds.Right; x++)
+                            {
+                                var candidate = new Point(x, y);
+                                var content = surface.ContentPoint(candidate);
+                                if (hit.Shape?.FillContains(content) ?? hit.Rect.Contains(content)) { visible = candidate; break; }
+                            }
+                        if (visible is not null) break;
+                    }
+                    Check(visible.HasValue, $"No visible image for {style} at reveal {reveal}");
+                    var point = visible!.Value;
                     Check(surface.Hit(point) is not null, "Visible image during expansion cannot be selected");
                     Check(surface.Hit(new Point(-1, point.Y)) is null, "Clipped image accepts invisible click");
                 }
