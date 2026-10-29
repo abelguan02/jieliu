@@ -9,6 +9,7 @@ func XCTAssertNil<T>(_ value: T?) { precondition(value == nil) }
 
 @main struct TrayCoreTests {
     static func main() throws {
+        try SharedHistoryChecks.run()
         let suite = Self()
         suite.testRingWrapsAndDoesNotReorderSlots()
         try suite.testRemovalLeavesFileAndDoesNotResetPointer()

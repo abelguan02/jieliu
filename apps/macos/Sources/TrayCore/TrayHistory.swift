@@ -30,29 +30,66 @@ public struct Capture: Codable, Identifiable, Equatable {
     }
 }
 
+public enum InsertionStatus: String { case inserted, duplicate, full }
+public struct InsertionResult {
+    public let status: InsertionStatus
+    public let evicted: Capture?
+}
+
 public struct TrayHistory: Codable {
     public static let capacity = 8
     public private(set) var items: [Capture] = []
     public private(set) var slots: [UUID?] = Array(repeating: nil, count: capacity)
     public private(set) var writePointer = 0
     public private(set) var total = 0
+    public private(set) var pinnedIDs: Set<UUID> = []
     public init() {}
 
-    @discardableResult public mutating func insert(_ capture: Capture) -> Capture? {
-        guard !items.contains(where: { $0.id == capture.id }) else { return nil }
+    private enum CodingKeys: String, CodingKey { case items, slots, writePointer, total, pinnedIDs }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        items = try values.decode([Capture].self, forKey: .items)
+        slots = try values.decode([UUID?].self, forKey: .slots)
+        writePointer = try values.decode(Int.self, forKey: .writePointer)
+        total = try values.decode(Int.self, forKey: .total)
+        pinnedIDs = try values.decodeIfPresent(Set<UUID>.self, forKey: .pinnedIDs) ?? []
+    }
+
+    public var nextWriteSlot: Int? {
+        let order = (0..<Self.capacity).map { (writePointer + $0) % Self.capacity }
+        return order.first { slots[$0] == nil }
+            ?? order.first { slots[$0].map { !pinnedIDs.contains($0) } ?? false }
+    }
+
+    public mutating func setPinned(_ ids: Set<UUID>, pinned: Bool) {
+        let live = ids.intersection(items.map(\.id))
+        if pinned { pinnedIDs.formUnion(live) } else { pinnedIDs.subtract(live) }
+    }
+
+    @discardableResult public mutating func insert(_ capture: Capture) -> InsertionResult {
+        guard !items.contains(where: { $0.id == capture.id }) else { return InsertionResult(status: .duplicate, evicted: nil) }
+        // A new version of a pinned file keeps its slot and pin, without moving the cursor.
+        if let old = items.first(where: { $0.url == capture.url && pinnedIDs.contains($0.id) }),
+           let index = slots.firstIndex(of: old.id) {
+            remove([old.id]); items.insert(capture, at: 0); slots[index] = capture.id
+            pinnedIDs.insert(capture.id); total += 1
+            return InsertionResult(status: .inserted, evicted: old)
+        }
         // The watcher assigns a new ID to each file version, even at the same URL.
         remove(Set(items.filter { $0.url == capture.url }.map(\.id)))
-        let evicted = slots[writePointer].flatMap { id in items.first { $0.id == id } }
+        guard let index = nextWriteSlot else { return InsertionResult(status: .full, evicted: nil) }
+        let evicted = slots[index].flatMap { id in items.first { $0.id == id } }
         if let evicted { items.removeAll { $0.id == evicted.id } }
         items.insert(capture, at: 0)
-        slots[writePointer] = capture.id
-        writePointer = (writePointer + 1) % Self.capacity
+        slots[index] = capture.id
+        writePointer = (index + 1) % Self.capacity
         total += 1
-        return evicted
+        return InsertionResult(status: .inserted, evicted: evicted)
     }
 
     public mutating func remove(_ ids: Set<UUID>) {
         items.removeAll { ids.contains($0.id) }
+        pinnedIDs.subtract(ids)
         slots = slots.map { id in id.flatMap { ids.contains($0) ? nil : $0 } }
     }
 
@@ -61,6 +98,7 @@ public struct TrayHistory: Codable {
         items = Array(items.prefix(Self.capacity))
         var ids = Set<UUID>(), paths = Set<URL>()
         items = items.filter { ids.insert($0.id).inserted && paths.insert($0.url).inserted }
+        pinnedIDs.formIntersection(ids)
         if slots.count != Self.capacity || !(0..<Self.capacity).contains(writePointer) {
             slots = Array(repeating: nil, count: Self.capacity)
             for (i, capture) in items.reversed().enumerated() { slots[i] = capture.id }

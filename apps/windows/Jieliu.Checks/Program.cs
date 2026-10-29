@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using Jieliu.Core;
 
+SharedHistoryChecks.Run();
+
 static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
 static Capture Shot(string path) => new(Guid.NewGuid(), path, DateTime.Now, 640, 400);
 static async Task Until(Func<bool> condition, string reason)
