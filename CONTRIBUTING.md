@@ -10,4 +10,6 @@ macOS 的 `bash scripts/check.sh` 和 Windows 检查脚本的 `-Gui` 模式会�
 
 行为变化需同步对应平台文档；平台尚未验证的功能应明确标注。提交尽量围绕单一改动，记录验证结果。
 
+历史行为变更同时更新 `tests/fixtures/history.json`，Swift 与 C# 检查直接读取这份共享数据。[用例契约](tests/fixtures/README.md)说明固定、空槽与持久化规则。Windows CI 复用 `scripts/windows-check.ps1` 执行核心、构建和离屏检查；真实桌面检查仍需另外验收。
+
 源码许可证尚未确定，当前文档不构成对外开源授权。
