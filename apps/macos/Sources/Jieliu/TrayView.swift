@@ -334,7 +334,7 @@ final class TrayView: NSView, NSDraggingSource, NSMenuDelegate {
             return layerPlacement(for:capture)?.path.boundingBox.offsetBy(dx:0,dy:-(1-openness)*200)
         }
     }
-    func toast(_ text:String) { message=text; messageUntil=CACurrentMediaTime()+4; needsDisplay=true }
+    func toast(_ text:String,duration:TimeInterval=2.4) { message=text; messageUntil=CACurrentMediaTime()+duration; needsDisplay=true }
     func visibleContent(at p:CGPoint)->Bool {
         guard openness>0.001,CGRect(x:0,y:0,width:designWidth,height:bounds.height/scale).contains(p) else { return false }
         if model.concept == .buffer {

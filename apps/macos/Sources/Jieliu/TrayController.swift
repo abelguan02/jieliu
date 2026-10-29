@@ -52,7 +52,7 @@ final class TrayController {
             guard let self else { return }
             let index = self.screens.firstIndex(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? 0
             guard self.views.indices.contains(index) else { return }
-            self.views[index].expanded = true; self.views[index].toast(message)
+            self.views[index].expanded = true; self.views[index].toast(message,duration:4)
             self.deadlines[index] = CACurrentMediaTime() + 4.6
         }
     }
