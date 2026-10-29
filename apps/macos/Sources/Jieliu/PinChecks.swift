@@ -2,10 +2,12 @@ import AppKit
 import TrayCore
 
 enum PinChecks {
-    static func run(root parent: URL, preferences: UserDefaults) throws {
+    static func run(root parent: URL) throws {
         let root = parent.appendingPathComponent("pin-checks")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "app.jieliu.pin-checks." + UUID().uuidString
+        let preferences = UserDefaults(suiteName: suite)!
+        defer { try? FileManager.default.removeItem(at: root); preferences.removePersistentDomain(forName: suite) }
         let model = AppModel(demo: true, preferences: preferences)
         model.animations = false
         let shots = try (0..<9).map { index -> Capture in

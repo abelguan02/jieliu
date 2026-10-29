@@ -22,7 +22,7 @@ enum OffscreenChecks {
         try CaptureInputChecks.run(root:root,preferences:defaults)
         try CaptureRegressionChecks.run(root:root,preferences:defaults)
         try CopyRoutingChecks.run(root:root,preferences:defaults)
-        try PinChecks.run(root:root,preferences:defaults)
+        try PinChecks.run(root:root)
         let bytes=DemoSupport.fixture(0)
         var shots:[Capture]=[]
         for i in 0..<40 {
