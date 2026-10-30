@@ -22,6 +22,8 @@ internal sealed partial class TraySurface
             var pixels = Enumerable.Repeat((byte)255, 40 * 30 * 4).ToArray();
             var bitmap = BitmapSource.Create(40, 30, 96, 96, PixelFormats.Bgra32, null, pixels, 160);
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using var encoded = new MemoryStream(); encoder.Save(encoded);
+            var png = encoded.ToArray();
             var time = 100.0; var systemEnabled = true; var sequence = 0;
             using var surface = new TraySurface(model, () => { }, () => { }, () => { }, () => systemEnabled, () => time)
                 { Width = 1000, Height = 202, Expanded = true, Reveal = 1 };
@@ -29,7 +31,7 @@ internal sealed partial class TraySurface
             Capture Receive()
             {
                 var path = Path.Combine(root, $"{sequence++}.png");
-                using (var file = File.Create(path)) encoder.Save(file);
+                File.WriteAllBytes(path, png);
                 var capture = new Capture(Guid.NewGuid(), path, DateTime.UnixEpoch.AddSeconds(sequence), 40, 30);
                 model.Receive(capture); surface.Arrive(capture); return capture;
             }
@@ -116,14 +118,27 @@ internal sealed partial class TraySurface
                 {
                     surface.Reveal = reveal; surface.Width = 164 + 836 * reveal; surface.Height = 34 + 168 * reveal;
                     Frame();
-                    var hit = surface.hits.First(h =>
+                    // During partial expansion a card can be visible while its center
+                    // is still clipped. Choose a pixel inside the visible geometry.
+                    Point? visible = null;
+                    var viewport = new Rect(0, 0, surface.Width, surface.Height);
+                    foreach (var hit in surface.hits.AsEnumerable().Reverse())
                     {
-                        var center = new Point(h.Rect.X + h.Rect.Width / 2 + (surface.Width - 1000) / 2,
-                            h.Rect.Y + h.Rect.Height / 2 - 18 * (1 - reveal));
-                        return new Rect(0, 0, surface.Width, surface.Height).Contains(center);
-                    });
-                    var point = new Point(hit.Rect.X + hit.Rect.Width / 2 + (surface.Width - 1000) / 2,
-                        hit.Rect.Y + hit.Rect.Height / 2 - 18 * (1 - reveal));
+                        var bounds = hit.Rect;
+                        bounds.Offset((surface.Width - 1000) / 2, -18 * (1 - reveal));
+                        bounds.Intersect(viewport);
+                        if (bounds.IsEmpty) continue;
+                        for (var y = bounds.Top + .5; y < bounds.Bottom && visible is null; y++)
+                            for (var x = bounds.Left + .5; x < bounds.Right; x++)
+                            {
+                                var candidate = new Point(x, y);
+                                var content = surface.ContentPoint(candidate);
+                                if (hit.Shape?.FillContains(content) ?? hit.Rect.Contains(content)) { visible = candidate; break; }
+                            }
+                        if (visible is not null) break;
+                    }
+                    Check(visible.HasValue, $"No visible image for {style} at reveal {reveal}");
+                    var point = visible!.Value;
                     Check(surface.Hit(point) is not null, "Visible image during expansion cannot be selected");
                     Check(surface.Hit(new Point(-1, point.Y)) is null, "Clipped image accepts invisible click");
                 }

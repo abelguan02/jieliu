@@ -30,6 +30,7 @@ public sealed class Model
     public event Action? Changed;
     public event Action? PreferencesChanged;
     public event Action<Capture>? Received;
+    public event Action<string>? NoticeRaised;
     public string Text(string chinese, string english) => Settings.English ? english : chinese;
 
     public Model(string? storage = null)
@@ -45,9 +46,7 @@ public sealed class Model
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { LastError = ex.Message; }
         try
         {
-            History = JsonStore.Read<History>(Path.Combine(folder, "history.json")) ?? new();
-            History.Validate();
-            History.Remove(History.Items.Where(c => !File.Exists(c.Path)).Select(c => c.Id).ToHashSet());
+            History = History.Load(Path.Combine(folder, "history.json"));
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { LastError = ex.Message; }
     }
@@ -66,8 +65,14 @@ public sealed class Model
     }
     public void Receive(Capture capture)
     {
+        var result = History.Insert(capture);
+        if (result.Status == InsertionStatus.Duplicate) return;
+        if (result.Status == InsertionStatus.Full)
+        {
+            NoticeRaised?.Invoke(Text("8 格均已固定，截图已保存到文件夹，未加入托盘", "All 8 slots are pinned. Screenshot saved to folder; tray unchanged."));
+            return;
+        }
         LastChangeWasCapture = true;
-        History.Insert(capture);
         Selection.IntersectWith(History.Items.Select(c => c.Id));
         foreach (var id in thumbnails.Keys.Except(History.Items.Select(c => c.Id)).ToArray()) thumbnails.Remove(id);
         SaveHistory(); Changed?.Invoke(); Received?.Invoke(capture);
@@ -78,6 +83,23 @@ public sealed class Model
         History.Remove(Selection);
         foreach (var id in Selection) thumbnails.Remove(id);
         Selection.Clear(); SaveHistory(); Changed?.Invoke();
+    }
+    public bool SelectionIsPinned
+    {
+        get
+        {
+            var live = Selection.Intersect(History.Items.Select(c => c.Id)).ToHashSet();
+            return live.Count > 0 && live.IsSubsetOf(History.PinnedIds);
+        }
+    }
+    public void ToggleSelectedPins()
+        => SetSelectedPins(!SelectionIsPinned);
+    public void SetSelectedPins(bool pinned)
+    {
+        if (!History.Items.Any(c => Selection.Contains(c.Id))) return;
+        LastChangeWasCapture = false;
+        History.SetPinned(Selection, pinned);
+        SaveHistory(); Changed?.Invoke();
     }
     public BitmapSource? Image(Capture capture)
     {

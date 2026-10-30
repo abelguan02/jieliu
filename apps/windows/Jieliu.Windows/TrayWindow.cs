@@ -94,6 +94,7 @@ internal sealed class TrayWindow : Window
         ApplyFrame();
     }
     public void Present(Capture capture) { Expand(true); surface.Arrive(capture); }
+    public void PresentNotice(string message) { Expand(true); surface.ShowNotice(message); }
     private void Collapse()
     {
         if (!expanded) return;
@@ -119,6 +120,8 @@ internal sealed partial class TraySurface : FrameworkElement, IDisposable
     private readonly Func<double> clock;
     private double Now => clock();
     private readonly DispatcherTimer animationTimer;
+    private readonly DispatcherTimer noticeTimer;
+    private string notice = "";
     private readonly Dictionary<Guid, Rect> positions = [];
     private readonly Dictionary<Guid, Rect> origins = [];
     private readonly Dictionary<Guid, (Capture Capture, ImageSource? Image)> painted = [];
@@ -158,6 +161,8 @@ internal sealed partial class TraySurface : FrameworkElement, IDisposable
         previousStyle = model.Settings.Style;
         animationTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(25) };
         animationTimer.Tick += (_, _) => { UpdateAnimationTimer(); InvalidateVisual(); };
+        noticeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+        noticeTimer.Tick += (_, _) => { noticeTimer.Stop(); notice = ""; InvalidateVisual(); };
         IsVisibleChanged += (_, _) => UpdateAnimationTimer();
         MouseLeave += (_, _) => { Hover(null); spreadLeave = Now + .26; };
         MouseEnter += (_, _) => { spreadLeave = double.PositiveInfinity; SetSpread(true); };
@@ -172,7 +177,7 @@ internal sealed partial class TraySurface : FrameworkElement, IDisposable
         };
         MouseMove += Move;
         KeyDown += Keys;
-        MouseRightButtonUp += (_, _) => Menu();
+        MouseRightButtonUp += (_, e) => Menu(e.GetPosition(this));
         ToolTip = model.Text("截图来源屏幕不可用，自动在鼠标所在屏幕展开", "Source display unavailable; new captures open on the pointer's display");
     }
     private void Refresh()
@@ -210,6 +215,10 @@ internal sealed partial class TraySurface : FrameworkElement, IDisposable
         UpdateAnimationTimer();
         ToolTip = model.Text("截图来源屏幕不可用，自动在鼠标所在屏幕展开", "Source display unavailable; new captures open on the pointer's display");
         InvalidateVisual();
+    }
+    internal void ShowNotice(string message)
+    {
+        notice = message; noticeTimer.Stop(); noticeTimer.Start(); InvalidateVisual();
     }
     public void Arrive(Capture capture)
     {
@@ -309,7 +318,7 @@ internal sealed partial class TraySurface : FrameworkElement, IDisposable
                 Text(dc, $"0x{i:X2}", rect.X, 121, 10.5);
                 Text(dc, capture is not null && bufferArrivals.TryGetValue(capture.Id, out var transfer) ? transfer.Status(Now) : capture?.Created.ToString("HH:mm:ss") ?? "—", rect.Right, 121, 10, Muted, TextAlignment.Right);
                 Text(dc, capture is null ? model.Text("空", "EMPTY") : $"{capture.Width}×{capture.Height}", rect.X, 139, 10.5, Dim);
-                if (i == model.History.WritePointer)
+                if (i == model.History.NextWriteSlot)
                 {
                     dc.PushOpacity(!MotionEnabled ? 1 : 0.4 + 0.6 * (0.5 + 0.5 * Math.Sin(Now * Math.PI * 2)));
                     dc.DrawRectangle(Brushes.OrangeRed, null, new Rect(rect.X, 115, 36, 2));
@@ -351,7 +360,7 @@ internal sealed partial class TraySurface : FrameworkElement, IDisposable
             dc.Pop();
             if (spreadMotion.Value(Now) < .5) Text(dc, model.Text($"{items.Count} 个图层", $"{items.Count} LAYERS"), 500, 164, 11, Muted, TextAlignment.Center);
         }
-        Text(dc, model.Text("拖出原图  ·  空格预览  ·  Delete 移出并保留文件", "DRAG ORIGINAL  ·  SPACE PREVIEW  ·  DELETE REMOVES FROM TRAY"), 26, 181, 10, Dim);
+        Text(dc, notice.Length > 0 ? notice : model.Text("拖出原图  ·  P 固定  ·  空格预览  ·  Delete 移出并保留文件", "DRAG ORIGINAL  ·  P PIN  ·  SPACE PREVIEW  ·  DELETE REMOVES FROM TRAY"), 26, 181, 10, notice.Length > 0 ? Brushes.White : Dim, maxWidth: 790);
         if (!string.IsNullOrEmpty(model.LastError)) Text(dc, model.Text("! 设置中查看错误", "! SEE SETTINGS"), 830, 181, 10, Brushes.Orange);
         foreach (var incoming in incomingOverlay) Shot(dc, incoming.Capture, incoming.Rect, true);
         foreach (var ghost in ghosts.ToArray())
@@ -420,7 +429,7 @@ internal sealed partial class TraySurface : FrameworkElement, IDisposable
             if (!flying) { arrivals.Remove(capture.Id); VisualDiagnostics.Event("layer-settled", "C", 1); }
         }
         var image = model.Image(capture);
-        LayerDrawing.Draw(dc, target, image, model.Selection.Contains(capture.Id), now, 1, MotionEnabled);
+        LayerDrawing.Draw(dc, target, image, model.Selection.Contains(capture.Id), now, 1, MotionEnabled, model.History.PinnedIds.Contains(capture.Id));
         var shape = LayerDrawing.Shape(target);
         layerPoses[capture.Id] = target; positions[capture.Id] = shape.Bounds; painted[capture.Id] = (capture, image);
         if (Reveal > .15) hits.Add((capture, shape.Bounds, shape));
@@ -511,6 +520,7 @@ internal sealed partial class TraySurface : FrameworkElement, IDisposable
             dc.DrawRectangle(null, new Pen(Brushes.White, 1.2) { DashStyle = new DashStyle(new double[] { 4, 3 }, MotionEnabled ? -Now * 14 % 7 : 0) }, border);
             Corners(dc, border, Brushes.White);
         }
+        if (model.History.PinnedIds.Contains(capture.Id)) PinDrawing.Draw(dc, rect);
         painted[capture.Id] = (capture, model.Image(capture));
         dc.Pop();
         if (Reveal > .15 && arrival > 0) hits.Add((capture, rect, null));
@@ -602,6 +612,7 @@ internal sealed partial class TraySurface : FrameworkElement, IDisposable
         }
         switch (e.Key)
         {
+            case Key.P: model.ToggleSelectedPins(); break;
             case Key.Delete: model.RemoveSelected(); break;
             case Key.Escape: collapse(); break;
             case Key.Space: if (Ordered().FirstOrDefault(c => model.Selection.Contains(c.Id)) is { } capture) Preview(capture); break;
@@ -614,14 +625,26 @@ internal sealed partial class TraySurface : FrameworkElement, IDisposable
         }
         e.Handled = true;
     }
-    private void Menu()
+    private ContextMenu CreateContextMenu(Capture? target = null)
     {
-        var menu = new ContextMenu(); contextMenu = menu;
+        CancelPress();
+        if (target is not null && !model.Selection.Contains(target.Id))
+        { model.Selection.Clear(); model.Selection.Add(target.Id); model.Notify(); }
+        var menu = new ContextMenu();
+        var shouldPin = !model.SelectionIsPinned;
+        var pin = new MenuItem { Header = model.SelectionIsPinned ? model.Text("取消固定", "Unpin") : model.Text("固定", "Pin"),
+            InputGestureText = "P", IsEnabled = model.History.Items.Any(c => model.Selection.Contains(c.Id)) };
+        pin.Click += (_, _) => model.SetSelectedPins(shouldPin); menu.Items.Add(pin);
         void Add(string zh, string en, Action action) { var item = new MenuItem { Header = model.Text(zh, en) }; item.Click += (_, _) => action(); menu.Items.Add(item); }
         Add("复制", "Copy", Copy);
         Add("预览", "Preview", () => { if (Ordered().FirstOrDefault(c => model.Selection.Contains(c.Id)) is { } c) Preview(c); });
         Add("移出托盘（保留文件）", "Remove from tray (keep file)", model.RemoveSelected);
-        Add("设置…", "Settings…", settings); menu.IsOpen = true;
+        Add("设置…", "Settings…", settings);
+        return menu;
     }
-    public void Dispose() { animationTimer.Stop(); model.Changed -= Refresh; preview?.Close(); if (contextMenu is not null) contextMenu.IsOpen = false; }
+    private void Menu(Point point)
+    {
+        contextMenu = CreateContextMenu(Hit(point)); contextMenu.IsOpen = true;
+    }
+    public void Dispose() { animationTimer.Stop(); noticeTimer.Stop(); model.Changed -= Refresh; preview?.Close(); if (contextMenu is not null) contextMenu.IsOpen = false; }
 }

@@ -5,9 +5,11 @@
 | 平台 | 当前状态 |
 | --- | --- |
 | macOS 14+ | 已有 Swift / AppKit / SwiftUI 实现，可本地构建；正式签名公证尚未完成 |
-| Windows 11 x64 | C# / WPF 原生首版，核心测试与交叉编译通过；Windows 真机验收待完成 |
+| Windows 11 x64 | C# / WPF 原生首版，Windows CI 核心、构建与离屏检查通过；Windows 11 真机验收待完成 |
 
 默认取景框胶囊入口、B 帧缓冲展开样式，支持 A 标尺 / C 图层、中英文，以及仅系统托盘或菜单栏图标模式。
+
+开发分支新增 Pin：选中后按 P 或右键固定，容量维持 8 格；固定项不自动淘汰，优先填空槽，全部固定时新截图仍保存在文件夹并提示未入托盘。两端共用[历史行为用例](tests/fixtures/README.md)，Windows 构建和离屏回归由 [GitHub Actions](https://github.com/abelguan02/jieliu/actions/workflows/windows.yml) 执行。Mac 已打包并在本机安装 1.1.0（build 7，arm64）；Windows Pin 尚未更新便携包。
 
 ## 仓库结构
 

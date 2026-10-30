@@ -81,8 +81,16 @@ static class WatcherSchedulingChecks
         {
             var captures = new ConcurrentQueue<Capture>();
             var errors = new ConcurrentQueue<string>();
-            await using var watcher = new CaptureWatcher([root], root, path => File.ReadAllText(path) == "partial"
-                ? throw new FormatException("Image write is incomplete") : (640, 400));
+            var finishPending = 0;
+            await using var watcher = new CaptureWatcher([root], root, path =>
+            {
+                // Finish the synthetic write after the worker's sharing probe has closed.
+                // A wall-clock write can race that read handle on Windows. The changed
+                // stamp still has to settle and be retried without another notification.
+                if (Interlocked.Exchange(ref finishPending, 0) == 1) File.WriteAllText(path, "complete");
+                return File.ReadAllText(path) == "partial"
+                    ? throw new FormatException("Image write is incomplete") : (640, 400);
+            });
             watcher.Captured += captures.Enqueue; watcher.Error += errors.Enqueue;
             StartWithoutNotifications(watcher);
             var pending = Path.Combine(root, "pending.png");
@@ -93,7 +101,7 @@ static class WatcherSchedulingChecks
             File.WriteAllText(unseen, "not part of the pending set");
             await Task.Delay(1800);
             Check(captures.IsEmpty, "Retrying a pending image scanned and collected an unrelated unnotified file");
-            File.WriteAllText(pending, "complete");
+            Interlocked.Exchange(ref finishPending, 1);
             await Until(() => captures.Count == 1, "Completed pending file was not retried without another notification");
             Check(captures.Single().Path == pending, "Pending retry collected the wrong file");
             Check(errors.Count == 1, "An unchanged incomplete image repeatedly reported the same error");
