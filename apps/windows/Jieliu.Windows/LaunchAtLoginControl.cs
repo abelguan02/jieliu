@@ -22,12 +22,8 @@ internal sealed class LaunchAtLoginControl : StackPanel
         Toggle = new CheckBox { Content = text("登录时启动", "Launch at login") };
         Toggle.Click += (_, _) => UpdateRegistration();
         Children.Add(Toggle);
-        Children.Add(new TextBlock
-        {
-            Text = text("绑定当前程序位置，移动后需重新开启。若已在 Windows 设置 → 应用 → 启动中禁用截留，请在那里重新启用。",
-                "Uses this app's current location; enable again after moving it. If Windows Settings → Apps → Startup has disabled Jieliu, re-enable it there."),
-            TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DimGray, Margin = new Thickness(0, 6, 0, 0)
-        });
+        Toggle.ToolTip = text("移动程序后需重新开启；若在 Windows 启动设置中禁用，请在那里启用。",
+            "Enable again after moving the app. If disabled in Windows Startup settings, re-enable it there.");
         Status = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DarkRed, Margin = new Thickness(0, 6, 0, 0) };
         Children.Add(Status);
         Refresh();

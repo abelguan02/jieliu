@@ -18,7 +18,7 @@ struct SettingsView:View {
                 Image(systemName:"viewfinder").font(.system(size:32,weight:.light)).foregroundStyle(.cyan)
                 VStack(alignment:.leading,spacing:4) {
                     Text(model.text("截留","Jieliu")).font(.system(size:28,weight:.semibold))
-                    Text(onboarding ? model.text("截下的每一张，都有落点。","A home for every screenshot.") : model.text("截图的收纳托盘","A tray for your screenshots")).foregroundStyle(.secondary)
+                    if onboarding { Text(model.text("截下的每一张，都有落点。","A home for every screenshot.")).foregroundStyle(.secondary) }
                 }
                 Spacer()
                 Text(Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "1.0.3").font(.system(size:11,design:.monospaced)).foregroundStyle(.secondary)
@@ -45,7 +45,6 @@ struct SettingsView:View {
                     Text(model.text("取景框胶囊","Viewfinder capsule")).tag(TrayEntry.capsule)
                     Text(model.text("仅菜单栏图标","Menu bar icon only")).tag(TrayEntry.menuBarOnly)
                 }.pickerStyle(.segmented).labelsHidden()
-                Text(model.text("仅菜单栏模式平时隐藏顶部入口；点击菜单或收到新截图时展开，离开后收起。","Menu bar mode hides the top entry. Open it from the menu or with a new screenshot; it collapses when you leave.")).font(.caption).foregroundStyle(.secondary)
             }
             VStack(alignment:.leading,spacing:10) {
                 Text(model.text("展开样式","Expanded style")).font(.headline)
@@ -61,7 +60,6 @@ struct SettingsView:View {
                     Button(model.text("更改…","Change…")) { model.chooseDestination() }
                     Button(model.text("打开","Open")) { model.openFolder() }
                 }
-                Text(model.text("更改目录仅影响后续截图，现有文件留在原处。","Changing the folder affects future screenshots only.")).font(.caption).foregroundStyle(.secondary)
             }
             Toggle(model.text("鼠标离开后自动收起","Collapse when the pointer leaves"),isOn:$model.autoHide)
                 .disabled(model.entry == .menuBarOnly)
@@ -71,11 +69,6 @@ struct SettingsView:View {
                 do { if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() } }
                 catch { state.localError=model.text("登录启动设置失败：","Could not update launch at login: ")+error.localizedDescription; state.launchAtLogin=SMAppService.mainApp.status == .enabled }
             }
-            VStack(alignment:.leading,spacing:8) {
-                Text(model.text("让截图更快进入托盘","Collect screenshots faster")).font(.headline)
-                Text(model.text("按 ⌘⇧5 →「选项」，关闭「显示浮动缩略图」。保持开启时，截留需等待系统写入文件后才能接收。","Press ⌘⇧5 → Options and turn off Show Floating Thumbnail. Otherwise, Jieliu waits for macOS to save the file.")).font(.system(size:12)).foregroundStyle(.secondary)
-                Text(model.text("空格 / 双击预览 · ⇧ / ⌘ 多选 · Delete 移出 · ⌘C 拷贝","Space / double-click: preview · ⇧ / ⌘: select multiple · Delete: remove · ⌘C: copy")).font(.system(size:11,design:.monospaced)).foregroundStyle(.secondary)
-            }.padding(14).background(.white.opacity(0.05),in:RoundedRectangle(cornerRadius:10))
             if !model.lastError.isEmpty || !state.localError.isEmpty {
                 Text(state.localError.isEmpty ? model.lastError : state.localError).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
                 Button(model.text("重新请求目录访问并重试","Allow folder access and retry")) {
@@ -86,7 +79,7 @@ struct SettingsView:View {
             if onboarding { HStack { Spacer(); Button(model.text("开始收纳","Start collecting"),action:start).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction) } }
         }.padding(28).frame(width:560).preferredColorScheme(.dark)
             .environment(\.locale,Locale(identifier:model.language.rawValue))
-        }.frame(width:560,height:min(onboarding ? 810 : 730,(NSScreen.main?.visibleFrame.height ?? 900)-100))
+        }.frame(width:560,height:min(onboarding ? 740 : 560,(NSScreen.main?.visibleFrame.height ?? 900)-100))
             .preferredColorScheme(.dark)
     }
 }
