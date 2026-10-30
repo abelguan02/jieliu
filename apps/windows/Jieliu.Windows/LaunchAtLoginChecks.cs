@@ -68,6 +68,9 @@ internal static class LaunchAtLoginChecks
                 Check(control.Toggle.IsChecked is null && !control.Toggle.IsEnabled && control.Status.Text.Contains("unavailable"), "Unreadable startup state must not be reported as off");
                 service.ReadFailure = false; service.Enabled = true; control.Refresh();
                 Check(control.Toggle.IsChecked == true && control.Toggle.IsEnabled && control.Status.Text == "", "Refresh must observe externally changed registration and recover from read failure");
+                var invalid = new LaunchAtLoginControl(new RunLaunchAtLogin(host, keyPath, (zh, en) => english ? en : zh), (zh, en) => english ? en : zh);
+                invalid.Toggle.IsChecked = true; invalid.Toggle.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
+                Check(invalid.Toggle.IsChecked == false && invalid.Status.Text.Contains(english ? "extracted" : "解压"), "Invalid program location must have localized actionable feedback");
             }
             Console.WriteLine("PASS: login startup isolated registry quoting, relocation, disable, bilingual UI state and failure recovery (no real startup registration)");
         }

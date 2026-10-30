@@ -18,16 +18,18 @@ internal sealed class RunLaunchAtLogin : ILaunchAtLogin
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private readonly string executablePath;
     private readonly string keyPath;
+    private readonly Func<string, string, string> text;
     private string Command => "\"" + executablePath + "\"";
 
-    public RunLaunchAtLogin() : this(Environment.ProcessPath ?? "") { }
+    public RunLaunchAtLogin(Func<string, string, string> text) : this(Environment.ProcessPath ?? "", RunKey, text) { }
 
     // Checks supply an isolated, non-startup registry key; never edit real login
     // registration from --render-check.
-    internal RunLaunchAtLogin(string executablePath, string keyPath = RunKey)
+    internal RunLaunchAtLogin(string executablePath, string keyPath, Func<string, string, string>? text = null)
     {
         this.executablePath = executablePath;
         this.keyPath = keyPath;
+        this.text = text ?? ((zh, en) => en);
     }
 
     public bool IsEnabled
@@ -46,10 +48,10 @@ internal sealed class RunLaunchAtLogin : ILaunchAtLogin
         {
             // Run command lines are limited to 260 characters by Windows.
             if (Command.Length > 260)
-                throw new InvalidOperationException("Move Jieliu to a shorter folder path before enabling launch at login.");
+                throw new InvalidOperationException(text("请将截留移到路径较短的文件夹后，再开启登录时启动。", "Move Jieliu to a shorter folder path before enabling launch at login."));
             if (!Path.IsPathFullyQualified(executablePath) || !File.Exists(executablePath)
                 || !string.Equals(Path.GetFileName(executablePath), "Jieliu.exe", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Launch the extracted Jieliu.exe before enabling launch at login.");
+                throw new InvalidOperationException(text("请先解压完整程序并运行 Jieliu.exe，再开启登录时启动。", "Launch the extracted Jieliu.exe before enabling launch at login."));
             using var key = Registry.CurrentUser.CreateSubKey(keyPath);
             key.SetValue(ValueName, Command, RegistryValueKind.String);
         }
@@ -59,6 +61,6 @@ internal sealed class RunLaunchAtLogin : ILaunchAtLogin
             key?.DeleteValue(ValueName, throwOnMissingValue: false);
         }
         if (IsEnabled != enabled)
-            throw new IOException("Windows did not retain the requested launch at login registration.");
+            throw new IOException(text("Windows 未保留请求的登录启动设置。", "Windows did not retain the requested launch at login registration."));
     }
 }
