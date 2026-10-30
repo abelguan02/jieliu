@@ -44,22 +44,14 @@ internal sealed class SettingsWindow : Window
         auto.Click += (_, _) => { model.Settings.AutoHide = auto.IsChecked == true; model.SavePreferences(); }; stack.Children.Add(auto);
         var animations = new CheckBox { Content = model.Text("界面动效", "Interface animations"), IsChecked = model.Settings.Animations, Margin = new Thickness(0, 14, 0, 0) };
         animations.Click += (_, _) => { model.Settings.Animations = animations.IsChecked == true; model.SavePreferences(); }; stack.Children.Add(animations);
-        stack.Children.Add(new TextBlock { Text = SystemParameters.ClientAreaAnimation
-            ? model.Text("展开、截图入槽和选中边框动效；遵循 Windows 动画设置。", "Expansion, incoming captures and selection motion; respects Windows animation settings.")
-            : model.Text("Windows 已关闭动画效果，当前以静态方式显示。可在系统设置 → 辅助功能 → 视觉效果中开启。", "Windows animations are disabled. Enable them in Settings → Accessibility → Visual effects."),
-            TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DimGray, Margin = new Thickness(0, 6, 0, 0) });
+        if (!SystemParameters.ClientAreaAnimation)
+            animations.ToolTip = model.Text("Windows 已关闭动画效果。", "Windows animations are disabled.");
         launchAtLogin = new LaunchAtLoginControl(new RunLaunchAtLogin(model.Text), model.Text);
         stack.Children.Add(launchAtLogin);
         Label("截图接入文件夹", "Screenshot input folder");
         Folder(stack, model.Settings.Source, path => model.Settings.Source = path);
         Label("保存文件夹", "Archive folder");
         Folder(stack, model.Settings.Destination, path => model.Settings.Destination = path);
-        stack.Children.Add(new TextBlock
-        {
-            Text = model.Text("只接入启动后新增或修改的图片。请将截图工具的自动保存目录设为接入文件夹；复制进去的普通图片也会被接入。仅在剪贴板中的截图不收集。移出托盘始终保留文件。\n\n落盘图片无法可靠提供来源屏幕，新截图在鼠标所在屏幕展开。",
-                "Collects new or changed images after launch. Set Snipping Tool to automatically save into the input folder; other images copied there are also collected. Clipboard-only captures are excluded. Removing an item always keeps its file.\n\nSaved images do not reliably identify their source display. New captures open on the pointer's display."),
-            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 20, 0, 0), Foreground = Brushes.DimGray
-        });
         error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DarkRed, Margin = new Thickness(0, 18, 0, 0) }; stack.Children.Add(error); UpdateError();
         var diagnostics = new Button { Content = model.Text("导出动效诊断…", "Export animation diagnostics…"), Margin = new Thickness(0, 16, 0, 0), Padding = new Thickness(8) };
         diagnostics.Click += (_, _) =>
