@@ -19,6 +19,8 @@ internal static class LaunchAtLoginChecks
             var executable = Path.Combine(folder, "Jieliu.exe"); File.WriteAllText(executable, "fixture only");
             var startup = new RunLaunchAtLogin(executable, keyPath);
             Check(!startup.IsEnabled, "Login startup must default to unregistered");
+            using (var key = Registry.CurrentUser.OpenSubKey(keyPath))
+                Check(key is null, "Reading startup state must not create a registration key");
             using (var key = Registry.CurrentUser.CreateSubKey(keyPath)) key.SetValue("Unrelated", "keep");
             startup.SetEnabled(true);
             using (var key = Registry.CurrentUser.OpenSubKey(keyPath)!)
@@ -38,6 +40,12 @@ internal static class LaunchAtLoginChecks
             var host = Path.Combine(folder, "dotnet.exe"); File.Copy(executable, host);
             try { new RunLaunchAtLogin(host, keyPath).SetEnabled(true); throw new Exception("Registered a development host"); }
             catch (InvalidOperationException) { }
+            try
+            {
+                new RunLaunchAtLogin(Path.Combine(folder, new string('x', 261), "Jieliu.exe"), keyPath).SetEnabled(true);
+                throw new Exception("Accepted an oversized Run command");
+            }
+            catch (InvalidOperationException ex) { Check(ex.Message.Contains("shorter"), "Long path needs actionable feedback"); }
             File.Delete(executable);
             try { startup.SetEnabled(true); throw new Exception("Registered a missing executable"); }
             catch (InvalidOperationException) { }

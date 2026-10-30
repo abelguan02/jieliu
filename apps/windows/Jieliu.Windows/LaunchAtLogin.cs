@@ -44,12 +44,12 @@ internal sealed class RunLaunchAtLogin : ILaunchAtLogin
     {
         if (enabled)
         {
-            if (!Path.IsPathFullyQualified(executablePath) || !File.Exists(executablePath)
-                || !string.Equals(Path.GetFileName(executablePath), "Jieliu.exe", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Launch the extracted Jieliu.exe before enabling launch at login.");
             // Run command lines are limited to 260 characters by Windows.
             if (Command.Length > 260)
                 throw new InvalidOperationException("Move Jieliu to a shorter folder path before enabling launch at login.");
+            if (!Path.IsPathFullyQualified(executablePath) || !File.Exists(executablePath)
+                || !string.Equals(Path.GetFileName(executablePath), "Jieliu.exe", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Launch the extracted Jieliu.exe before enabling launch at login.");
             using var key = Registry.CurrentUser.CreateSubKey(keyPath);
             key.SetValue(ValueName, Command, RegistryValueKind.String);
         }
