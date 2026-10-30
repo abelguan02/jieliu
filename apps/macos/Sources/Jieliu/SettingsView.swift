@@ -44,13 +44,13 @@ struct SettingsView:View {
                 Picker(model.text("收起入口","Collapsed entry"),selection:$model.entry) {
                     Text(model.text("取景框胶囊","Viewfinder capsule")).tag(TrayEntry.capsule)
                     Text(model.text("仅菜单栏图标","Menu bar icon only")).tag(TrayEntry.menuBarOnly)
-                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth:.infinity)
+                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth:.infinity,alignment:.leading)
             }
             VStack(alignment:.leading,spacing:10) {
                 Text(model.text("展开样式","Expanded style")).font(.headline)
                 Picker(model.text("展开样式","Expanded style"),selection:$model.concept) {
                     ForEach(Concept.allCases) { concept in Text("\(concept.rawValue)  \(model.title(concept))").tag(concept) }
-                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth:.infinity)
+                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth:.infinity,alignment:.leading)
             }
             VStack(alignment:.leading,spacing:8) {
                 Text(model.text("截图归档文件夹","Screenshot folder")).font(.headline)
