@@ -11,6 +11,7 @@ internal sealed class SettingsWindow : Window
 {
     private readonly Model model;
     private TextBlock? error;
+    private LaunchAtLoginControl? launchAtLogin;
     public SettingsWindow(Model model)
     {
         this.model = model;
@@ -18,6 +19,7 @@ internal sealed class SettingsWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         model.Changed += UpdateError;
         Closed += (_, _) => model.Changed -= UpdateError;
+        Activated += (_, _) => launchAtLogin?.Refresh();
         Render();
     }
     private void Render()
@@ -46,6 +48,8 @@ internal sealed class SettingsWindow : Window
             ? model.Text("展开、截图入槽和选中边框动效；遵循 Windows 动画设置。", "Expansion, incoming captures and selection motion; respects Windows animation settings.")
             : model.Text("Windows 已关闭动画效果，当前以静态方式显示。可在系统设置 → 辅助功能 → 视觉效果中开启。", "Windows animations are disabled. Enable them in Settings → Accessibility → Visual effects."),
             TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DimGray, Margin = new Thickness(0, 6, 0, 0) });
+        launchAtLogin = new LaunchAtLoginControl(new RunLaunchAtLogin(model.Text), model.Text);
+        stack.Children.Add(launchAtLogin);
         Label("截图接入文件夹", "Screenshot input folder");
         Folder(stack, model.Settings.Source, path => model.Settings.Source = path);
         Label("保存文件夹", "Archive folder");

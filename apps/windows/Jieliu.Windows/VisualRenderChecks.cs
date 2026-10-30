@@ -19,6 +19,7 @@ internal static class VisualRenderChecks
     }
     public static void Run()
     {
+        LaunchAtLoginChecks.Run();
         ImageRegressionChecks.Run();
         TraySurface.RunPinChecks();
         var data = new byte[120 * 80 * 4];
