@@ -1,0 +1,86 @@
+[
+  {
+    "name": "empty-slot-before-eviction",
+    "initial": ["a","b","c","d","e","f","g","h"],
+    "steps": [{"op":"remove","ids":["e"]},{"op":"insert","id":"i"}],
+    "expected": {"items":["i","h","g","f","d","c","b","a"],"slots":["a","b","c","d","i","f","g","h"],"pinned":[],"pointer":5,"total":9,"status":"inserted","evicted":null,"next":5}
+  },
+  {
+    "name": "ring-wrap",
+    "initial": ["a","b","c","d","e","f","g","h"],
+    "steps": [{"op":"insert","id":"i"},{"op":"insert","id":"j"}],
+    "expected": {"items":["j","i","h","g","f","e","d","c"],"slots":["i","j","c","d","e","f","g","h"],"pinned":[],"pointer":2,"total":10,"status":"inserted","evicted":"b","next":2}
+  },
+  {
+    "name": "skip-pinned-slots",
+    "initial": ["a","b","c","d","e","f","g","h"],
+    "steps": [{"op":"pin","ids":["a","b"]},{"op":"insert","id":"i"}],
+    "expected": {"items":["i","h","g","f","e","d","b","a"],"slots":["a","b","i","d","e","f","g","h"],"pinned":["a","b"],"pointer":3,"total":9,"status":"inserted","evicted":"c","next":3}
+  },
+  {
+    "name": "all-pinned-keeps-history-and-file",
+    "initial": ["a","b","c","d","e","f","g","h"],
+    "steps": [{"op":"pin","ids":["a","b","c","d","e","f","g","h"]},{"op":"insert","id":"i"}],
+    "expected": {"items":["h","g","f","e","d","c","b","a"],"slots":["a","b","c","d","e","f","g","h"],"pinned":["a","b","c","d","e","f","g","h"],"pointer":0,"total":8,"status":"full","evicted":null,"next":null}
+  },
+  {
+    "name": "unpin-resumes-admission",
+    "initial": ["a","b","c","d","e","f","g","h"],
+    "steps": [{"op":"pin","ids":["a","b","c","d","e","f","g","h"]},{"op":"insert","id":"i"},{"op":"unpin","ids":["c"]},{"op":"insert","id":"i"}],
+    "expected": {"items":["i","h","g","f","e","d","b","a"],"slots":["a","b","i","d","e","f","g","h"],"pinned":["a","b","d","e","f","g","h"],"pointer":3,"total":9,"status":"inserted","evicted":"c","next":2}
+  },
+  {
+    "name": "pins-survive-restart",
+    "initial": ["a","b","c","d","e","f","g","h"],
+    "steps": [{"op":"pin","ids":["a","g"]},{"op":"remove","ids":["b"]},{"op":"reload"}],
+    "expected": {"items":["h","g","f","e","d","c","a"],"slots":["a",null,"c","d","e","f","g","h"],"pinned":["a","g"],"pointer":0,"total":8,"status":null,"evicted":null,"next":1}
+  },
+  {
+    "name": "legacy-history-without-pins",
+    "initial": ["a","b","c","d","e","f","g","h"],
+    "steps": [{"op":"legacyReload"}],
+    "expected": {"items":["h","g","f","e","d","c","b","a"],"slots":["a","b","c","d","e","f","g","h"],"pinned":[],"pointer":0,"total":8,"status":null,"evicted":null,"next":0}
+  },
+  {
+    "name": "pinned-file-version-keeps-slot",
+    "initial": ["a","b","c","d","e","f","g","h"],
+    "steps": [{"op":"pin","ids":["a"]},{"op":"insert","id":"a2","path":"a"},{"op":"reload"}],
+    "expected": {"items":["a2","h","g","f","e","d","c","b"],"slots":["a2","b","c","d","e","f","g","h"],"pinned":["a2"],"pointer":0,"total":9,"status":"inserted","evicted":"a","next":1}
+  },
+  {
+    "name": "unpinned-file-version-reuses-available-slot",
+    "initial": ["a","b"],
+    "steps": [{"op":"insert","id":"a2","path":"a"}],
+    "expected": {"items":["a2","b"],"slots":[null,"b","a2",null,null,null,null,null],"pinned":[],"pointer":3,"total":3,"status":"inserted","evicted":null,"next":3}
+  },
+  {
+    "name": "explicit-remove-clears-pin",
+    "initial": ["a","b","c","d","e","f","g","h"],
+    "steps": [{"op":"pin","ids":["a"]},{"op":"remove","ids":["a"]},{"op":"insert","id":"i"}],
+    "expected": {"items":["i","h","g","f","e","d","c","b"],"slots":["i","b","c","d","e","f","g","h"],"pinned":[],"pointer":1,"total":9,"status":"inserted","evicted":null,"next":1}
+  },
+  {
+    "name": "missing-file-clears-pin-on-load",
+    "initial": ["a","b","c","d","e","f","g","h"],
+    "steps": [{"op":"pin","ids":["a"]},{"op":"deleteFile","id":"a"},{"op":"reload"}],
+    "expected": {"items":["h","g","f","e","d","c","b"],"slots":[null,"b","c","d","e","f","g","h"],"pinned":[],"pointer":0,"total":8,"status":null,"evicted":null,"next":0}
+  },
+  {
+    "name": "duplicate-does-not-move-pinned-slot",
+    "initial": ["a","b","c","d","e","f","g","h"],
+    "steps": [{"op":"pin","ids":["a"]},{"op":"insert","id":"a"}],
+    "expected": {"items":["h","g","f","e","d","c","b","a"],"slots":["a","b","c","d","e","f","g","h"],"pinned":["a"],"pointer":0,"total":8,"status":"duplicate","evicted":null,"next":1}
+  },
+  {
+    "name": "stale-pin-selection-is-ignored",
+    "initial": ["a","b"],
+    "steps": [{"op":"pin","ids":["b","missing"]}],
+    "expected": {"items":["b","a"],"slots":["a","b",null,null,null,null,null,null],"pinned":["b"],"pointer":2,"total":2,"status":null,"evicted":null,"next":2}
+  },
+  {
+    "name": "one-free-slot-among-pins",
+    "initial": ["a","b","c","d","e","f","g","h"],
+    "steps": [{"op":"pin","ids":["a","b","c","d","e","f","g","h"]},{"op":"remove","ids":["e"]},{"op":"insert","id":"i"}],
+    "expected": {"items":["i","h","g","f","d","c","b","a"],"slots":["a","b","c","d","i","f","g","h"],"pinned":["a","b","c","d","f","g","h"],"pointer":5,"total":9,"status":"inserted","evicted":null,"next":4}
+  }
+]

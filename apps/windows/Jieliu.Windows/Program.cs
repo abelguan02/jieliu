@@ -48,6 +48,7 @@ internal sealed class Program : Application
         icon.MouseClick += (_, args) => { if (args.Button == Forms.MouseButtons.Left) Expand(); };
         model.PreferencesChanged += PreferencesChanged;
         model.Received += OnCapture;
+        model.NoticeRaised += OnNotice;
         RebuildPanels(); BuildMenu();
         SystemEvents.DisplaySettingsChanged += DisplaysChanged;
         if (model.Settings.Onboarded == true) _ = RestartWatcher(); else ShowOnboarding();
@@ -115,6 +116,11 @@ internal sealed class Program : Application
     {
         var screen = Forms.Screen.FromPoint(Forms.Cursor.Position);
         panels.FirstOrDefault(p => p.Screen.DeviceName == screen.DeviceName)?.Expand(false);
+    }
+    private void OnNotice(string message)
+    {
+        var screen = Forms.Screen.FromPoint(Forms.Cursor.Position);
+        panels.FirstOrDefault(p => p.Screen.DeviceName == screen.DeviceName)?.PresentNotice(message);
     }
     private void ShowSettings()
     {

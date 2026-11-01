@@ -5,9 +5,11 @@
 | 平台 | 当前状态 |
 | --- | --- |
 | macOS 14+ | 已有 Swift / AppKit / SwiftUI 实现，可本地构建；正式签名公证尚未完成 |
-| Windows 11 x64 | C# / WPF 原生首版，核心测试与交叉编译通过；Windows 真机验收待完成 |
+| Windows 11 x64 | C# / WPF 原生首版，Windows CI 核心、构建与离屏检查通过；Windows 11 真机验收待完成 |
 
 默认取景框胶囊入口、B 帧缓冲展开样式，支持 A 标尺 / C 图层、中英文，以及仅系统托盘或菜单栏图标模式。
+
+支持 Pin：选中后按 P 或右键固定，容量维持 8 格；固定项不自动淘汰，优先填空槽，全部固定时新截图仍保存在文件夹并提示未入托盘。两端共用[历史行为用例](tests/fixtures/README.md)，Windows 构建和离屏回归由 [GitHub Actions](https://github.com/abelguan02/jieliu/actions/workflows/windows.yml) 执行。Mac 已打包并在本机安装精简设置页的 1.1.1（build 8，arm64）；Windows Pin 尚未更新便携包。
 
 ## 仓库结构
 
@@ -24,7 +26,7 @@ scripts/                 macOS 与 Windows 检查、构建、打包脚本
 Package.swift            macOS Swift Package 入口
 ```
 
-构建缓存 `.build/` 和产物 `dist/` 不进入版本控制。当前仅整理本地仓库，没有执行 GitHub 上传或公开发布。
+源码仓库：[abelguan02/jieliu](https://github.com/abelguan02/jieliu)。构建缓存 `.build/`、产物 `dist/`、个人截图与本地凭据不进入版本控制。当前发布范围为源码；尚未提供经过两端完整验收的正式发行版本。
 
 ## macOS 本地开发
 
@@ -49,6 +51,6 @@ bash scripts/package-local.sh
 
 ## 许可证与分发
 
-项目源码许可证尚未确定；当前没有授予 MIT 或其他开源许可证。正式公开前由维护者确认并加入根目录 `LICENSE`。
+项目源码公开供查看，许可证尚未确定；当前没有授予 MIT 或其他开源许可证。公开仓库不代表已授予自由使用、修改或再分发的开源许可。后续选定许可证时会在根目录加入 `LICENSE`。
 
 Geist 字体遵循独立的 [SIL OFL 1.1](apps/macos/Resources/Geist-OFL.txt)。本地构建的 macOS 包采用 ad-hoc 签名，不是已经公证的正式发行包。

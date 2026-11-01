@@ -26,16 +26,26 @@ final class ScreenshotWatcher {
         }
     }
     private var known = Set<FileVersion>()
+    private var expired: [URL:FileVersion] = [:]
     private var pending: [URL: (first: Date, version: FileVersion, stable: Int)] = [:]
     private var directories: [URL] = []
     private var destination: URL
-    private let startDate = Date()
+    private var startDate = Date.distantPast
     private var reported = Set<String>()
     private let sourceOverride:[URL]?
+    private let now:()->Date
+    private let listDirectory:(URL)throws->[URL]
 
-    init(destination: URL, sourceOverride:[URL]? = nil) { self.destination = destination; self.sourceOverride=sourceOverride }
+    init(destination: URL, sourceOverride:[URL]? = nil, now:@escaping ()->Date = Date.init,
+         listDirectory:@escaping (URL)throws->[URL] = {
+             try FileManager.default.contentsOfDirectory(at:$0,includingPropertiesForKeys:[.isRegularFileKey],options:[.skipsHiddenFiles])
+         }) {
+        self.destination = destination; self.sourceOverride=sourceOverride; self.now=now
+        self.listDirectory=listDirectory
+    }
 
     func start() {
+        startDate=Date()
         let desktop = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
         let configured = UserDefaults(suiteName: "com.apple.screencapture")?.string(forKey: "location")
         var paths = [desktop, destination]
@@ -68,7 +78,7 @@ final class ScreenshotWatcher {
                 self.query.disableUpdates()
                 let urls = self.query.results.compactMap { ($0 as? NSMetadataItem)?.value(forAttribute: NSMetadataItemURLKey) as? URL }
                 self.query.enableUpdates()
-                self.work.async { for url in urls { self.enqueue(url) } }
+                self.metadataArrived(urls)
             })
         }
         if !query.start() { onError?("Spotlight 监听不可用；仍通过截图目录检测新文件。") }
@@ -79,22 +89,35 @@ final class ScreenshotWatcher {
         work.sync { sources.forEach { $0.cancel() }; sources.removeAll(); timer?.cancel(); timer = nil }
     }
 
+    func metadataArrived(_ urls:[URL]) {
+        // These URLs come from the positive screenshot query. Metadata can arrive
+        // after the retry window without changing the file's content version.
+        work.async { for url in urls { self.enqueue(url,metadataConfirmed:true) } }
+    }
+
     private func scan(_ directory: URL, baseline: Bool) {
         do {
-            let urls = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])
+            let urls = try listDirectory(directory)
+            let present=Set(urls.map(\.standardizedFileURL))
+            expired=expired.filter { $0.key.deletingLastPathComponent() != directory.standardizedFileURL || present.contains($0.key) }
             for url in urls {
-                if baseline {
-                    if let version=FileVersion(url) { known.insert(version) }
+                // A permission prompt can delay the first listing for minutes.
+                // Baseline only files born before start(), not those created while waiting.
+                if baseline,let version=FileVersion(url),
+                   Date(timeIntervalSince1970:Double(version.birthSeconds)+Double(version.birthNanos)/1_000_000_000) < startDate {
+                    known.insert(version)
                 } else { enqueue(url) }
             }
         } catch { report("无法读取 \(directory.path)：\(error.localizedDescription)") }
     }
 
-    private func enqueue(_ url: URL) {
+    private func enqueue(_ url: URL, metadataConfirmed:Bool = false) {
         let url = url.standardizedFileURL
         guard ["png", "jpg", "jpeg", "heic", "tiff", "tif", "pdf"].contains(url.pathExtension.lowercased()) else { return }
         guard let version=FileVersion(url),!known.contains(version),pending[url] == nil else { return }
-        pending[url] = (Date(), version, 0)
+        guard metadataConfirmed || expired[url] != version else { return }
+        expired[url]=nil
+        pending[url] = (now(), version, 0)
     }
 
     private func drain() {
@@ -107,12 +130,14 @@ final class ScreenshotWatcher {
             guard var state = pending[url] else { continue }
             guard let version=FileVersion(url) else { pending[url]=nil; continue }
             if known.contains(version) { pending[url]=nil; continue }
-            if version != state.version { state=(Date(),version,0) }
+            if version != state.version { state=(now(),version,0) }
             else { state.stable += 1 }
-            if Date().timeIntervalSince(state.first) > 30 { pending[url] = nil; continue }
+            if now().timeIntervalSince(state.first) > 30 {
+                expired[url]=version; pending[url]=nil; continue
+            }
+            pending[url] = state
             guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                   let size = attrs[.size] as? Int, size > 0 else { continue }
-            pending[url] = state
             guard state.stable >= 1, CaptureFiles.isScreenshot(url) else { continue }
             guard let image = NSImage(contentsOf: url), image.isValid else { continue }
             let rep = image.representations.max { $0.pixelsWide < $1.pixelsWide }

@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using Jieliu.Core;
 
+SharedHistoryChecks.Run();
+
 static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
 static Capture Shot(string path) => new(Guid.NewGuid(), path, DateTime.Now, 640, 400);
 static async Task Until(Func<bool> condition, string reason)
@@ -14,6 +16,7 @@ var root = Path.Combine(Path.GetTempPath(), "jieliu-check-" + Guid.NewGuid().ToS
 VisualChecks.Run();
 SelectionChecks.Run();
 ImageSizingChecks.Run();
+await WatcherSchedulingChecks.Run();
 await WatcherRecoveryChecks.Run();
 var opening = new Motion(); opening.Retarget(1, 0, 0.46);
 Check(opening.Value(0) == 0 && opening.Value(0.2) > 0 && opening.Value(0.2) < 1, "Expansion must have intermediate frames");

@@ -38,6 +38,7 @@ final class AppModel: ObservableObject {
     var selection = Set<UUID>()
     var onChange: (() -> Void)?
     var onCapture: ((Capture, Capture?) -> Void)?
+    var onNotice: ((String) -> Void)?
     var onRestart: (() -> Void)?
     var onLanguageChange:(()->Void)?
     var onEntryChange:(()->Void)?
@@ -64,10 +65,14 @@ final class AppModel: ObservableObject {
     }
 
     func receive(_ capture: Capture) {
-        guard !history.items.contains(where: { $0.id == capture.id }) else { return }
-        let previous = history.insert(capture)
+        let result = history.insert(capture)
+        guard result.status != .duplicate else { return }
+        guard result.status != .full else {
+            onNotice?(text("8 格均已固定，截图已保存到文件夹，未加入托盘","All 8 slots are pinned. Screenshot saved to folder; tray unchanged."))
+            return
+        }
         selection.formIntersection(Set(history.items.map(\.id)))
-        persist(); onCapture?(capture, previous); onChange?()
+        persist(); onCapture?(capture, result.evicted); onChange?()
         let live = Set(history.items.map(\.id))
         images = images.filter { live.contains($0.key) }
     }
@@ -88,6 +93,18 @@ final class AppModel: ObservableObject {
 
     func removeSelection() {
         history.remove(selection); selection.removeAll(); persist(); onChange?()
+    }
+    var selectionIsPinned: Bool {
+        let live = selection.intersection(history.items.map(\.id))
+        return !live.isEmpty && live.isSubset(of: history.pinnedIDs)
+    }
+    func toggleSelectedPins() {
+        setSelectedPins(!selectionIsPinned)
+    }
+    func setSelectedPins(_ pinned: Bool) {
+        guard !selection.intersection(history.items.map(\.id)).isEmpty else { return }
+        history.setPinned(selection, pinned: pinned)
+        persist(); onChange?()
     }
     func persist() {
         guard !isDemo else { return }

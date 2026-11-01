@@ -6,7 +6,7 @@
 
 ## 1. [P2] 连续截图淘汰图片后，松开鼠标仍提交过期选择
 
-位置：[TrayWindow.cs:148](/Users/abelguan/Desktop/UtilityApp/Screenshots/apps/windows/Jieliu.Windows/TrayWindow.cs:148)、[TrayWindow.cs:458](/Users/abelguan/Desktop/UtilityApp/Screenshots/apps/windows/Jieliu.Windows/TrayWindow.cs:458)。
+位置：[TrayWindow.cs:148](https://github.com/abelguan02/jieliu/blob/4d21e85/apps/windows/Jieliu.Windows/TrayWindow.cs#L148)、[TrayWindow.cs:458](https://github.com/abelguan02/jieliu/blob/4d21e85/apps/windows/Jieliu.Windows/TrayWindow.cs#L458)。
 
 按住一张已经选中的图片时，`Down` 把它保存在 `selectOnRelease`。此时新截图使历史达到容量并淘汰该图片，`Model.Receive` 虽然会从当前选择中剔除它，但 `Refresh` 没有取消待提交的鼠标选择。松开鼠标后，`Select` 会把已不存在的图片 ID 加回去，并可能清除其他有效选择，导致选择状态与可复制、拖出的图片不一致。
 
@@ -18,7 +18,7 @@
 
 ## 2. [P2] C 飞入截图遮住旧图，却允许点击穿透到旧图
 
-位置：[TrayWindow.cs:374](/Users/abelguan/Desktop/UtilityApp/Screenshots/apps/windows/Jieliu.Windows/TrayWindow.cs:374)，绘制顺序见 [TrayWindow.cs:298](/Users/abelguan/Desktop/UtilityApp/Screenshots/apps/windows/Jieliu.Windows/TrayWindow.cs:298)。
+位置：[TrayWindow.cs:374](https://github.com/abelguan02/jieliu/blob/4d21e85/apps/windows/Jieliu.Windows/TrayWindow.cs#L374)，绘制顺序见 [TrayWindow.cs:298](https://github.com/abelguan02/jieliu/blob/4d21e85/apps/windows/Jieliu.Windows/TrayWindow.cs#L298)。
 
 C 会把飞入中的截图画在最上层，但只有 `!flying` 才把它加入命中列表。下层旧图仍在命中列表中。因此连续截图期间，点击或双击新图与旧图重叠的可见区域，会选中或预览被遮住的旧图；拖动也可能拖出旧图。这不是透视几何算法不准确，而是视觉遮挡和交互遮挡不一致。
 
@@ -28,7 +28,7 @@ C 会把飞入中的截图画在最上层，但只有 `!flying` 才把它加入�
 
 ## 3. [P2] 运行中关闭 Windows 系统动画，可能留下静止粒子与读写提示
 
-位置：[TrayWindow.cs:192](/Users/abelguan/Desktop/UtilityApp/Screenshots/apps/windows/Jieliu.Windows/TrayWindow.cs:192)，相关绘制见 [TrayWindow.cs:267](/Users/abelguan/Desktop/UtilityApp/Screenshots/apps/windows/Jieliu.Windows/TrayWindow.cs:267)、[TrayWindow.cs:312](/Users/abelguan/Desktop/UtilityApp/Screenshots/apps/windows/Jieliu.Windows/TrayWindow.cs:312)。
+位置：[TrayWindow.cs:192](https://github.com/abelguan02/jieliu/blob/4d21e85/apps/windows/Jieliu.Windows/TrayWindow.cs#L192)，相关绘制见 [TrayWindow.cs:267](https://github.com/abelguan02/jieliu/blob/4d21e85/apps/windows/Jieliu.Windows/TrayWindow.cs#L267)、[TrayWindow.cs:312](https://github.com/abelguan02/jieliu/blob/4d21e85/apps/windows/Jieliu.Windows/TrayWindow.cs#L312)。
 
 `MotionEnabled` 同时读取应用设置和 `SystemParameters.ClientAreaAnimation`。关闭应用内动效会触发 `Changed → Refresh`，清空粒子状态；但运行中关闭 Windows 系统动画没有对应的清理订阅。下一次动画 tick 仅停止计时器并请求最后一帧，已有 `ghosts` 和 `bufferArrivals` 仍在。
 

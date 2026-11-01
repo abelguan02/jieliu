@@ -79,6 +79,7 @@ internal sealed class OnboardingWindow : Window
         stack.Children.Add(Panels.Folder(model, model.Settings.Source, path => model.Settings.Source = path, () => { }));
         stack.Children.Add(Panels.Heading(model.Text("保存文件夹", "Archive folder")));
         stack.Children.Add(Panels.Folder(model, model.Settings.Destination, path => model.Settings.Destination = path, () => { }));
+        stack.Children.Add(new LaunchAtLoginControl(new RunLaunchAtLogin(model.Text), model.Text));
         stack.Children.Add(Panels.Dim(model.Text("在截图工具设置中开启自动保存，并保存到接入文件夹。", "Turn on automatic saving in Snipping Tool and save to the input folder."), 16));
         return stack;
     }

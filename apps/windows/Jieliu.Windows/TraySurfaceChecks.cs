@@ -22,6 +22,8 @@ internal sealed partial class TraySurface
             var pixels = Enumerable.Repeat((byte)255, 40 * 30 * 4).ToArray();
             var bitmap = BitmapSource.Create(40, 30, 96, 96, PixelFormats.Bgra32, null, pixels, 160);
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using var encoded = new MemoryStream(); encoder.Save(encoded);
+            var png = encoded.ToArray();
             var time = 100.0; var systemEnabled = true; var sequence = 0;
             using var surface = new TraySurface(model, () => { }, () => { }, () => { }, () => systemEnabled, () => time)
                 { Width = 1000, Height = 202, Expanded = true, Reveal = 1 };
@@ -29,7 +31,7 @@ internal sealed partial class TraySurface
             Capture Receive()
             {
                 var path = Path.Combine(root, $"{sequence++}.png");
-                using (var file = File.Create(path)) encoder.Save(file);
+                File.WriteAllBytes(path, png);
                 var capture = new Capture(Guid.NewGuid(), path, DateTime.UnixEpoch.AddSeconds(sequence), 40, 30);
                 model.Receive(capture); surface.Arrive(capture); return capture;
             }
@@ -116,14 +118,27 @@ internal sealed partial class TraySurface
                 {
                     surface.Reveal = reveal; surface.Width = 164 + 836 * reveal; surface.Height = 34 + 168 * reveal;
                     Frame();
-                    var hit = surface.hits.First(h =>
+                    // During partial expansion a card can be visible while its center
+                    // is still clipped. Choose a pixel inside the visible geometry.
+                    Point? visible = null;
+                    var viewport = new Rect(0, 0, surface.Width, surface.Height);
+                    foreach (var hit in surface.hits.AsEnumerable().Reverse())
                     {
-                        var center = new Point(h.Rect.X + h.Rect.Width / 2 + (surface.Width - 1000) / 2,
-                            h.Rect.Y + h.Rect.Height / 2 - 18 * (1 - reveal));
-                        return new Rect(0, 0, surface.Width, surface.Height).Contains(center);
-                    });
-                    var point = new Point(hit.Rect.X + hit.Rect.Width / 2 + (surface.Width - 1000) / 2,
-                        hit.Rect.Y + hit.Rect.Height / 2 - 18 * (1 - reveal));
+                        var bounds = hit.Rect;
+                        bounds.Offset((surface.Width - 1000) / 2, -18 * (1 - reveal));
+                        bounds.Intersect(viewport);
+                        if (bounds.IsEmpty) continue;
+                        for (var y = bounds.Top + .5; y < bounds.Bottom && visible is null; y++)
+                            for (var x = bounds.Left + .5; x < bounds.Right; x++)
+                            {
+                                var candidate = new Point(x, y);
+                                var content = surface.ContentPoint(candidate);
+                                if (hit.Shape?.FillContains(content) ?? hit.Rect.Contains(content)) { visible = candidate; break; }
+                            }
+                        if (visible is not null) break;
+                    }
+                    Check(visible.HasValue, $"No visible image for {style} at reveal {reveal}");
+                    var point = visible!.Value;
                     Check(surface.Hit(point) is not null, "Visible image during expansion cannot be selected");
                     Check(surface.Hit(new Point(-1, point.Y)) is null, "Clipped image accepts invisible click");
                 }
@@ -132,6 +147,29 @@ internal sealed partial class TraySurface
             Check(surface.Hit(new Point(50, 20)) is null, "Collapsed capsule selected a hidden image");
             Check(model.History.Items.Count == 8 && Directory.GetFiles(root, "*.png").Length == sequence, "Burst lost original files or exceeded capacity");
             surface.CheckAlignment();
+            // Inspect the same in-memory payload used by copy and drag. Never call
+            // Clipboard.SetDataObject or start a drag from the background runner.
+            model.Selection.Clear();
+            Check(surface.Data() is null, "Empty selection produced clipboard data");
+            var selected = model.History.Items.Take(2).ToArray();
+            model.Selection.Add(selected[0].Id);
+            var single = surface.Data()!;
+            Check(single.GetFileDropList().Count == 1 && single.GetFileDropList()[0] == selected[0].Path, "Single copy lost its original path");
+            var original = single.GetImage();
+            Check(original.PixelWidth == 40 && original.PixelHeight == 30, "Single copy lost original image dimensions");
+            Check(single.GetData("PNG") is MemoryStream stream && stream.ToArray().SequenceEqual(File.ReadAllBytes(selected[0].Path)), "Single copy changed original PNG bytes");
+            model.Selection.Add(selected[1].Id);
+            var multiple = surface.Data()!;
+            Check(multiple.GetFileDropList().Cast<string>().ToHashSet().SetEquals(selected.Select(c => c.Path)), "Multiple copy lost file paths");
+            Check(!multiple.GetDataPresent(DataFormats.Bitmap, false) && !multiple.GetDataPresent("PNG", false), "Multiple copy unexpectedly supplied a single image");
+            model.Selection.Clear(); model.Selection.Add(Guid.NewGuid());
+            Check(surface.Data() is null, "Stale selection produced clipboard data");
+            model.Selection.Clear(); model.Selection.Add(selected[0].Id);
+            var held = selected[0].Path + ".held";
+            File.Move(selected[0].Path, held);
+            try { Check(surface.Data() is null, "Missing selected file produced clipboard data"); }
+            finally { File.Move(held, selected[0].Path); }
+            Console.WriteLine("PASS: empty/stale/missing copy selection, original PNG/bitmap single copy and file-list multiple copy without system clipboard access");
             Console.WriteLine("PASS: offscreen TraySurface eviction/selection, C flying hit, style switching, app/system motion cancellation, re-enable and burst");
         }
         finally { Directory.Delete(root, true); }

@@ -84,14 +84,21 @@ public sealed class CaptureWatcher : IAsyncDisposable
         {
             while (!cancel.IsCancellationRequested)
             {
-                await signal.WaitAsync(TimeSpan.FromMilliseconds(450), cancel.Token);
-                // Always wait one interval between observations, including event bursts.
-                await Task.Delay(180, cancel.Token);
+                // Idle directories sleep until an event. Only unfinished files need
+                // timed observations, even if a writer sends no further notification.
+                var changed = await signal.WaitAsync(pending.Count == 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromMilliseconds(450), cancel.Token);
+                if (changed) await Task.Delay(180, cancel.Token);
                 while (renames.TryDequeue(out var rename))
                 {
                     if (known.TryGetValue(rename.Old, out var stamp) && FileStamp.Read(rename.New) == stamp)
                     { known[rename.New] = stamp; known.Remove(rename.Old); }
                     pending.Remove(rename.Old);
+                }
+                if (!changed)
+                {
+                    foreach (var path in pending.OrderBy(entry => entry.Value.Created).Select(entry => entry.Key).ToArray())
+                        Process(path, FileStamp.Read(path));
+                    continue;
                 }
                 foreach (var directory in directories)
                 {
@@ -100,7 +107,8 @@ public sealed class CaptureWatcher : IAsyncDisposable
                         var paths = Directory.GetFiles(directory);
                         var present = paths.ToHashSet(StringComparer.OrdinalIgnoreCase);
                         foreach (var stale in pending.Keys.Where(p => History.SamePath(System.IO.Path.GetDirectoryName(p)!, directory) && !present.Contains(p)).ToArray()) pending.Remove(stale);
-                        foreach (var path in paths.OrderBy(p => FileStamp.Read(p)?.Created)) Process(path);
+                        var observations = paths.Select(path => (Path: path, Stamp: FileStamp.Read(path))).OrderBy(file => file.Stamp?.Created);
+                        foreach (var file in observations) Process(file.Path, file.Stamp);
                         foreach (var stale in known.Keys.Where(p => History.SamePath(System.IO.Path.GetDirectoryName(p)!, directory) && !present.Contains(p)).ToArray()) known.Remove(stale);
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Report(ex.Message); }
@@ -115,15 +123,19 @@ public sealed class CaptureWatcher : IAsyncDisposable
         }
     }
 
-    private void Process(string path)
+    private void Process(string path, FileStamp? observation)
     {
         if (!new[] { ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff" }.Contains(System.IO.Path.GetExtension(path).ToLowerInvariant())) return;
-        if (FileStamp.Read(path) is not { } stamp || stamp.Length == 0 || known.GetValueOrDefault(path) == stamp) return;
+        // A temporary attribute-read failure must not discard an unfinished file.
+        // Directory notifications remove deleted paths during the next full scan.
+        if (observation is not { } stamp) return;
+        if (known.GetValueOrDefault(path) == stamp) { pending.Remove(path); return; }
         // Directory notifications can arrive after a polling scan. Preserve rename
         // suppression even when the old name disappeared before the event arrived.
         if (known.Any(entry => entry.Value == stamp && !File.Exists(entry.Key)))
         { known[path] = stamp; pending.Remove(path); return; }
         if (!pending.TryGetValue(path, out var previous) || previous != stamp) { pending[path] = stamp; return; }
+        if (stamp.Length == 0) return;
         try
         {
             // Reject files held by a writer; decoding must finish before archiving.

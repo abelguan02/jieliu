@@ -10,14 +10,16 @@ internal sealed class SettingsWindow : Window
 {
     private readonly Model model;
     private TextBlock? error;
+    private LaunchAtLoginControl? launchAtLogin;
     private readonly Action about;
     public SettingsWindow(Model model, Action about)
     {
         this.model = model; this.about = about;
-        Width = 550; Height = 560; MinWidth = 450; MinHeight = 400;
+        Width = 550; Height = 640; MinWidth = 450; MinHeight = 400;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         model.Changed += UpdateError;
         Closed += (_, _) => model.Changed -= UpdateError;
+        Activated += (_, _) => launchAtLogin?.Refresh();
         Render();
     }
     private void Render()
@@ -40,7 +42,10 @@ internal sealed class SettingsWindow : Window
         auto.Click += (_, _) => { model.Settings.AutoHide = auto.IsChecked == true; model.SavePreferences(); }; stack.Children.Add(auto);
         var animations = new CheckBox { Content = model.Text("界面动效", "Interface animations"), IsChecked = model.Settings.Animations, Margin = new Thickness(0, 14, 0, 0) };
         animations.Click += (_, _) => { model.Settings.Animations = animations.IsChecked == true; model.SavePreferences(); }; stack.Children.Add(animations);
-        if (!SystemParameters.ClientAreaAnimation) stack.Children.Add(Panels.Dim(model.Text("Windows 已关闭动画效果。", "Windows animations are turned off.")));
+        if (!SystemParameters.ClientAreaAnimation)
+            animations.ToolTip = model.Text("Windows 已关闭动画效果。", "Windows animations are disabled.");
+        launchAtLogin = new LaunchAtLoginControl(new RunLaunchAtLogin(model.Text), model.Text);
+        stack.Children.Add(launchAtLogin);
         Label("截图接入文件夹", "Screenshot input folder");
         stack.Children.Add(Panels.Folder(model, model.Settings.Source, path => model.Settings.Source = path, Render));
         Label("保存文件夹", "Archive folder");
