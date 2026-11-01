@@ -20,6 +20,8 @@ internal sealed class Program : Application
     private Forms.NotifyIcon? icon;
     private CaptureWatcher? watcher;
     private SettingsWindow? settings;
+    private AboutWindow? about;
+    private OnboardingWindow? onboarding;
     private readonly SemaphoreSlim watcherChange = new(1, 1);
     private string watchedSource = "", watchedDestination = "";
     private bool exiting;
@@ -48,7 +50,7 @@ internal sealed class Program : Application
         model.Received += OnCapture;
         RebuildPanels(); BuildMenu();
         SystemEvents.DisplaySettingsChanged += DisplaysChanged;
-        _ = RestartWatcher();
+        if (model.Settings.Onboarded == true) _ = RestartWatcher(); else ShowOnboarding();
     }
     private void DisplaysChanged(object? sender, EventArgs e) => Dispatcher.BeginInvoke(RebuildPanels);
     private void RebuildPanels()
@@ -69,7 +71,7 @@ internal sealed class Program : Application
         await watcherChange.WaitAsync();
         try
         {
-            if (exiting || (watcher is not null && watchedSource == model.Settings.Source && watchedDestination == model.Settings.Destination)) return;
+            if (exiting || model.Settings.Onboarded != true || (watcher is not null && watchedSource == model.Settings.Source && watchedDestination == model.Settings.Destination)) return;
             if (watcher is not null) await watcher.DisposeAsync();
             watcher = null;
             var next = new CaptureWatcher([model.Settings.Source], model.Settings.Destination, Model.Dimensions);
@@ -85,9 +87,20 @@ internal sealed class Program : Application
     {
         var old = icon!.ContextMenuStrip;
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add(model.Text("展开托盘", "Open tray"), null, (_, _) => Expand());
-        menu.Items.Add(model.Text("设置…", "Settings…"), null, (_, _) => ShowSettings());
+        menu.Items.Add(model.Text("展开截图托盘", "Show screenshot tray"), null, (_, _) => Expand());
+        var styles = new Forms.ToolStripMenuItem(model.Text("视觉方案", "Appearance"));
+        foreach (var (key, zh, en) in new[] { ("A", "标尺", "Ruler"), ("B", "帧缓冲", "Buffer"), ("C", "图层", "Layers") })
+        {
+            var item = new Forms.ToolStripMenuItem(key + "  " + model.Text(zh, en)) { Checked = model.Settings.Style == key };
+            // Saving rebuilds this menu; let the click finish before the old strip is disposed.
+            item.Click += (_, _) => Dispatcher.BeginInvoke(() => { model.Settings.Style = key; model.SavePreferences(); Expand(); });
+            styles.DropDownItems.Add(item);
+        }
+        menu.Items.Add(styles);
         menu.Items.Add(model.Text("打开截图文件夹", "Open screenshot folder"), null, (_, _) => OpenFolder());
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add(model.Text("关于截留", "About Jieliu"), null, (_, _) => ShowAbout());
+        menu.Items.Add(model.Text("设置…", "Settings…"), null, (_, _) => ShowSettings());
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(model.Text("退出截留", "Quit Jieliu"), null, async (_, _) => await Quit());
         icon.ContextMenuStrip = menu; old?.Dispose();
@@ -105,8 +118,27 @@ internal sealed class Program : Application
     }
     private void ShowSettings()
     {
-        if (settings is null) { settings = new SettingsWindow(model); settings.Closed += (_, _) => settings = null; }
+        if (model.Settings.Onboarded != true) { ShowOnboarding(); return; }
+        if (settings is null) { settings = new SettingsWindow(model, ShowAbout); settings.Closed += (_, _) => settings = null; }
         settings.Show(); settings.Activate();
+    }
+    private void ShowAbout()
+    {
+        if (about is null) { about = new AboutWindow(model, ShowOnboarding); about.Closed += (_, _) => about = null; }
+        about.Show(); about.Activate();
+    }
+    private void ShowOnboarding()
+    {
+        if (onboarding is null)
+        {
+            onboarding = new OnboardingWindow(model, () =>
+            {
+                model.Settings.Onboarded = true; model.SavePreferences(); // Starts the watcher.
+                onboarding?.Close(); Expand();
+            });
+            onboarding.Closed += (_, _) => onboarding = null;
+        }
+        onboarding.Show(); onboarding.Activate();
     }
     private void OpenFolder()
     {

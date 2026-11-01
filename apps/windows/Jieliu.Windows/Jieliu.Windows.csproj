@@ -13,6 +13,8 @@
   <ItemGroup><ProjectReference Include="../Jieliu.Core/Jieliu.Core.csproj" /></ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../macos/Resources/GeistMono-Medium.ttf.b64" LogicalName="Jieliu.GeistMono" />
+    <EmbeddedResource Include="../../macos/Resources/Donate-WeChat.png" LogicalName="Jieliu.Donate.WeChat" Condition="Exists('../../macos/Resources/Donate-WeChat.png')" />
+    <EmbeddedResource Include="../../macos/Resources/Donate-Alipay.png" LogicalName="Jieliu.Donate.Alipay" Condition="Exists('../../macos/Resources/Donate-Alipay.png')" />
     <None Include="../../macos/Resources/Geist-OFL.txt" Link="Geist-OFL.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

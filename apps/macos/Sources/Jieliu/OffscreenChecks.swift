@@ -19,6 +19,7 @@ enum OffscreenChecks {
         model.reduceMotion={false}
         AlignmentChecks.run(model)
         ReviewRegressionChecks.run(model)
+        PanelChecks.run(model)
         try CaptureInputChecks.run(root:root,preferences:defaults)
         let bytes=DemoSupport.fixture(0)
         var shots:[Capture]=[]
