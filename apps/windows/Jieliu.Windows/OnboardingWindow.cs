@@ -9,15 +9,18 @@ namespace Jieliu.Windows;
 internal sealed class OnboardingWindow : Window
 {
     private readonly Model model;
-    private readonly Action start;
+    private readonly Action start, finish;
     public int Page { get; private set; }
-    public OnboardingWindow(Model model, Action start, int page = 0)
+    /// <summary>Collected total when collection started; a larger total means the trial capture arrived.</summary>
+    public long? Baseline { get; private set; }
+    private bool Received => Baseline is { } baseline && model.History.Total > baseline;
+    public OnboardingWindow(Model model, Action start, Action finish, int page = 0, long? baseline = null)
     {
-        this.model = model; this.start = start; Page = page;
+        this.model = model; this.start = start; this.finish = finish; Page = page; Baseline = baseline;
         Width = 540; Height = 440; ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        model.PreferencesChanged += Render;
-        Closed += (_, _) => model.PreferencesChanged -= Render;
+        model.PreferencesChanged += Render; model.Changed += Render;
+        Closed += (_, _) => { model.PreferencesChanged -= Render; model.Changed -= Render; };
         Render();
     }
     private void Render()
@@ -26,16 +29,20 @@ internal sealed class OnboardingWindow : Window
         var root = new DockPanel { Margin = new Thickness(28) };
         var footer = new DockPanel { Margin = new Thickness(0, 16, 0, 0) }; DockPanel.SetDock(footer, Dock.Bottom);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal }; DockPanel.SetDock(buttons, Dock.Right);
-        if (Page > 0) buttons.Children.Add(Button(model.Text("上一步", "Back"), () => { Page--; Render(); }, false));
-        buttons.Children.Add(Page < 2
-            ? Button(model.Text("下一步", "Continue"), () => { Page++; Render(); }, true)
-            : Button(model.Text("开始收纳", "Start collecting"), start, true));
+        // Collection is already running on the trial page, so there is no way back.
+        if (Page is > 0 and < 3) buttons.Children.Add(Button(model.Text("上一步", "Back"), () => { Page--; Render(); }, false));
+        buttons.Children.Add(Page switch
+        {
+            < 2 => Button(model.Text("下一步", "Continue"), () => { Page++; Render(); }, true),
+            2 => Button(model.Text("开始收纳", "Start collecting"), () => { Baseline = model.History.Total; Page = 3; start(); Render(); }, true),
+            _ => Received ? Button(model.Text("完成", "Done"), finish, true) : Button(model.Text("跳过", "Skip"), finish, false)
+        });
         footer.Children.Add(buttons);
         var dots = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        for (var i = 0; i < 3; i++) dots.Children.Add(new Ellipse { Width = 6, Height = 6, Margin = new Thickness(0, 0, 6, 0), Fill = i == Page ? Panels.Accent : Brushes.LightGray });
+        for (var i = 0; i < 4; i++) dots.Children.Add(new Ellipse { Width = 6, Height = 6, Margin = new Thickness(0, 0, 6, 0), Fill = i == Page ? Panels.Accent : Brushes.LightGray });
         footer.Children.Add(dots);
         root.Children.Add(footer);
-        root.Children.Add(Page switch { 0 => Welcome(), 1 => Usage(), _ => Setup() });
+        root.Children.Add(Page switch { 0 => Welcome(), 1 => Usage(), 2 => Setup(), _ => Trial() });
         Content = root;
     }
     private Button Button(string text, Action click, bool primary)
@@ -53,6 +60,16 @@ internal sealed class OnboardingWindow : Window
         var language = new ComboBox { ItemsSource = new[] { "中文", "English" }, SelectedIndex = model.Settings.English ? 1 : 0, Width = 180, Margin = new Thickness(0, 24, 0, 0) };
         language.SelectionChanged += (_, _) => { model.Settings.English = language.SelectedIndex == 1; model.SavePreferences(); };
         stack.Children.Add(language);
+        return stack;
+    }
+    private StackPanel Trial()
+    {
+        var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 48, 0, 0) };
+        // Camera and check mark from the Windows icon fonts.
+        stack.Children.Add(new TextBlock { Text = Received ? "\uE73E" : "\uE722", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 48, Foreground = Received ? Brushes.SeaGreen : Panels.Accent, HorizontalAlignment = HorizontalAlignment.Center });
+        stack.Children.Add(new TextBlock { Text = Received ? model.Text("已收进顶部托盘", "Collected in the tray") : model.Text("截一张试试", "Take a screenshot"), FontSize = 24, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 6) });
+        var detail = Panels.Dim(Received ? model.Text("拖到其他应用即可使用", "Drag it into any app") : model.Text("按 Win + Shift + S，框选任意区域", "Press Win + Shift + S and select any area"));
+        detail.HorizontalAlignment = HorizontalAlignment.Center; stack.Children.Add(detail);
         return stack;
     }
     private StackPanel Usage()

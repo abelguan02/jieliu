@@ -13,7 +13,8 @@ enum PanelChecks {
                 ("settings",AnyView(SettingsView(model:model) {}),360...620),
                 ("about",AnyView(AboutView(model:model) {}),420...640)
             ]
-            for page in 0..<3 { panels.append(("onboarding-\(page)",AnyView(OnboardingView(model:model,page:page) {}),380...420)) }
+            for page in 0..<4 { panels.append(("onboarding-\(page)",AnyView(OnboardingView(model:model,page:page,baseline:model.history.total,start:{},finish:{})),380...420)) }
+            panels.append(("onboarding-3-received",AnyView(OnboardingView(model:model,page:3,baseline:model.history.total-1,start:{},finish:{})),380...420))
             var onboardingHeights=Set<CGFloat>()
             for (name,view,heights) in panels {
                 let host=NSHostingView(rootView:view.background(Color(white:0.13)))
@@ -33,6 +34,6 @@ enum PanelChecks {
         }
         model.language=original
         precondition(NSApplication.shared.windows.allSatisfy { !$0.isVisible },"Panel checks created a visible window")
-        print("PASS: settings, about and onboarding pages fit in Chinese and English without windows")
+        print("PASS: settings, about, onboarding pages and trial states fit in Chinese and English without windows")
     }
 }

@@ -76,10 +76,10 @@ final class AppDelegate:NSObject,NSApplicationDelegate,NSMenuItemValidation {
         about=present(about,title:model.text("关于截留","About Jieliu"),content:AboutView(model:model) { [weak self] in self?.showOnboarding() })
     }
     func showOnboarding() {
-        onboarding=present(onboarding,title:model.text("欢迎使用截留","Welcome to Jieliu"),content:OnboardingView(model:model) { [weak self] in
+        onboarding=present(onboarding,title:model.text("欢迎使用截留","Welcome to Jieliu"),content:OnboardingView(model:model,start:{ [weak self] in
             guard let self else { return }
-            self.model.defaults.set(true,forKey:"onboarded"); self.onboarding?.close(); self.startWatching(); self.tray?.expand()
-        })
+            self.model.defaults.set(true,forKey:"onboarded"); self.startWatching()
+        },finish:{ [weak self] in self?.onboarding?.close(); self?.tray?.expand() }))
     }
     /// Reuses a visible window; a closed one is rebuilt so it reflects the current state.
     private func present(_ existing:NSWindow?,title:String,content:some View)->NSWindow {

@@ -33,9 +33,10 @@ internal static class SelfChecks
                 aboutContent.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 Check(aboutContent.DesiredSize.Width <= 460 && aboutContent.DesiredSize.Height <= 680, "About panel too large");
                 about.Close();
-                for (var page = 0; page < 3; page++)
+                for (var page = 0; page < 5; page++)
                 {
-                    var guide = new OnboardingWindow(model, () => { }, page);
+                    // Page 4 is the trial page after a capture has arrived.
+                    var guide = new OnboardingWindow(model, () => { }, () => { }, Math.Min(page, 3), page == 4 ? model.History.Total - 1 : model.History.Total);
                     var content = (FrameworkElement)guide.Content;
                     content.Measure(new Size(524, 401));
                     Check(content.DesiredSize.Height <= 401, "Onboarding page " + page + " overflows");
@@ -83,7 +84,7 @@ internal static class SelfChecks
                 panel.Expand(true); Check(panel.IsVisible && GetForegroundWindow() == foreground, "Automatic panel steals focus");
             }
             finally { panel.Close(); }
-            Console.WriteLine("PASS: onboarding defaults/upgrade, about and onboarding layout, WPF render A/B/C, distinct animation frames, default settings, persistence, deletion preserves file, hidden entry and nonactivating presentation");
+            Console.WriteLine("PASS: onboarding defaults/upgrade, about, onboarding and trial layout, WPF render A/B/C, distinct animation frames, default settings, persistence, deletion preserves file, hidden entry and nonactivating presentation");
         }
         finally { Directory.Delete(root, true); }
     }

@@ -137,11 +137,9 @@ internal sealed class Program : Application
     {
         if (onboarding is null)
         {
-            onboarding = new OnboardingWindow(model, () =>
-            {
-                model.Settings.Onboarded = true; model.SavePreferences(); // Starts the watcher.
-                onboarding?.Close(); Expand();
-            });
+            onboarding = new OnboardingWindow(model,
+                () => { model.Settings.Onboarded = true; model.SavePreferences(); }, // Starts the watcher.
+                () => { onboarding?.Close(); Expand(); });
             onboarding.Closed += (_, _) => onboarding = null;
         }
         onboarding.Show(); onboarding.Activate();
