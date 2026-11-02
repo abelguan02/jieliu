@@ -63,5 +63,8 @@ internal sealed class SettingsWindow : Window
         var link = Panels.Link(model.Text("关于截留", "About Jieliu"), about); link.Margin = new Thickness(0, 20, 0, 0);
         stack.Children.Add(link);
     }
-    private void UpdateError() { if (error is not null) error.Text = model.LastError; }
+    private void UpdateError()
+    {
+        if (error is not null) error.Text = model.LastError + (model.LastError.Length > 0 && model.LastCaptureError.Length > 0 ? "\n" : "") + model.LastCaptureError;
+    }
 }

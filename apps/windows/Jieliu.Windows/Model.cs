@@ -29,6 +29,7 @@ public sealed class Model
     public HashSet<Guid> Selection { get; } = [];
     public bool LastChangeWasCapture { get; private set; }
     public string LastError { get; private set; } = "";
+    public string LastCaptureError { get; private set; } = "";
     public event Action? Changed;
     public event Action? PreferencesChanged;
     public event Action<Capture>? Received;
@@ -55,6 +56,7 @@ public sealed class Model
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { LastError = ex.Message; }
     }
     public void Error(string text) { LastError = text; Changed?.Invoke(); }
+    public void CaptureError(string text) { LastCaptureError = text; Changed?.Invoke(); }
     public void Notify() => Changed?.Invoke();
     public void SavePreferences()
     {
@@ -69,6 +71,8 @@ public sealed class Model
     }
     public void Receive(Capture capture)
     {
+        // A successfully archived image resolves capture failures, not settings/history failures.
+        if (LastCaptureError.Length > 0) CaptureError("");
         var result = History.Insert(capture);
         if (result.Status == InsertionStatus.Duplicate) return;
         if (result.Status == InsertionStatus.Full)

@@ -18,12 +18,10 @@ internal sealed class Program : Application
     private readonly Model model = new();
     private readonly List<TrayWindow> panels = [];
     private Forms.NotifyIcon? icon;
-    private CaptureWatcher? watcher;
+    private readonly CaptureSession captures = new(Model.Dimensions);
     private SettingsWindow? settings;
     private AboutWindow? about;
     private OnboardingWindow? onboarding;
-    private readonly SemaphoreSlim watcherChange = new(1, 1);
-    private string watchedSource = "", watchedDestination = "";
     private bool exiting;
 
     [STAThread]
@@ -49,6 +47,8 @@ internal sealed class Program : Application
         model.PreferencesChanged += PreferencesChanged;
         model.Received += OnCapture;
         model.NoticeRaised += OnNotice;
+        captures.Captured += capture => Dispatcher.BeginInvoke(() => { if (!exiting) model.Receive(capture); });
+        captures.Error += error => Dispatcher.BeginInvoke(() => { if (!exiting) model.CaptureError(error); });
         RebuildPanels(); BuildMenu();
         SystemEvents.DisplaySettingsChanged += DisplaysChanged;
         if (model.Settings.Onboarded == true) _ = RestartWatcher(); else ShowOnboarding();
@@ -69,20 +69,12 @@ internal sealed class Program : Application
     }
     private async Task RestartWatcher()
     {
-        await watcherChange.WaitAsync();
         try
         {
-            if (exiting || model.Settings.Onboarded != true || (watcher is not null && watchedSource == model.Settings.Source && watchedDestination == model.Settings.Destination)) return;
-            if (watcher is not null) await watcher.DisposeAsync();
-            watcher = null;
-            var next = new CaptureWatcher([model.Settings.Source], model.Settings.Destination, Model.Dimensions);
-            next.Captured += capture => Dispatcher.BeginInvoke(() => { if (!exiting) model.Receive(capture); });
-            next.Error += error => Dispatcher.BeginInvoke(() => model.Error(error));
-            next.Start(); watcher = next;
-            watchedSource = model.Settings.Source; watchedDestination = model.Settings.Destination;
+            if (await captures.RestartAsync(!exiting && model.Settings.Onboarded == true, model.Settings.Source, model.Settings.Destination))
+                model.CaptureError("");
         }
-        catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException) { model.Error(ex.Message); }
-        finally { watcherChange.Release(); }
+        catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException) { model.CaptureError(ex.Message); }
     }
     private void BuildMenu()
     {
@@ -153,9 +145,7 @@ internal sealed class Program : Application
     {
         if (exiting) return; exiting = true;
         SystemEvents.DisplaySettingsChanged -= DisplaysChanged;
-        await watcherChange.WaitAsync();
-        try { if (watcher is not null) await watcher.DisposeAsync(); }
-        finally { watcherChange.Release(); }
+        await captures.DisposeAsync();
         icon?.Dispose(); Shutdown();
     }
 }

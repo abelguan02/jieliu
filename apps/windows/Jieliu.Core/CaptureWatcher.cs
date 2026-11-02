@@ -57,9 +57,9 @@ public sealed class CaptureWatcher : IAsyncDisposable
     {
         if (worker is not null) throw new InvalidOperationException("Watcher already started");
         // Baseline is synchronous: files arriving after Start returns are never treated as old.
-        foreach (var directory in directories)
+        try
         {
-            try
+            foreach (var directory in directories)
             {
                 Directory.CreateDirectory(directory);
                 var watcher = new FileSystemWatcher(directory) { NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size };
@@ -67,10 +67,15 @@ public sealed class CaptureWatcher : IAsyncDisposable
                 watcher.Created += changed; watcher.Changed += changed; watcher.Deleted += changed;
                 watcher.Renamed += (_, e) => { renames.Enqueue((e.OldFullPath, e.FullPath)); Wake(); };
                 watcher.Error += (_, _) => Wake();
-                watcher.EnableRaisingEvents = true; watchers.Add(watcher);
+                watchers.Add(watcher); watcher.EnableRaisingEvents = true;
                 foreach (var path in Directory.GetFiles(directory)) if (FileStamp.Read(path) is { } stamp) known[path] = stamp;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Report(ex.Message); }
+        }
+        catch
+        {
+            foreach (var watcher in watchers) watcher.Dispose();
+            watchers.Clear();
+            throw;
         }
         worker = Task.Run(Run);
     }

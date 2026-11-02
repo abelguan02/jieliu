@@ -29,13 +29,14 @@ internal sealed class OnboardingWindow : Window
         var root = new DockPanel { Margin = new Thickness(28) };
         var footer = new DockPanel { Margin = new Thickness(0, 16, 0, 0) }; DockPanel.SetDock(footer, Dock.Bottom);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal }; DockPanel.SetDock(buttons, Dock.Right);
-        // Collection is already running on the trial page, so there is no way back.
         if (Page is > 0 and < 3) buttons.Children.Add(Button(model.Text("上一步", "Back"), () => { Page--; Render(); }, false));
+        if (Page == 3 && model.LastCaptureError.Length > 0)
+            buttons.Children.Add(Button(model.Text("返回配置", "Back to setup"), () => { Page = 2; Render(); }, false));
         buttons.Children.Add(Page switch
         {
             < 2 => Button(model.Text("下一步", "Continue"), () => { Page++; Render(); }, true),
             2 => Button(model.Text("开始收纳", "Start collecting"), () => { Baseline = model.History.Total; Page = 3; start(); Render(); }, true),
-            _ => Received ? Button(model.Text("完成", "Done"), finish, true) : Button(model.Text("跳过", "Skip"), finish, false)
+            _ => Received && model.LastCaptureError.Length == 0 ? Button(model.Text("完成", "Done"), finish, true) : Button(model.Text("跳过", "Skip"), finish, false)
         });
         footer.Children.Add(buttons);
         var dots = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
@@ -64,12 +65,26 @@ internal sealed class OnboardingWindow : Window
     }
     private StackPanel Trial()
     {
+        var failed = model.LastCaptureError.Length > 0;
         var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 48, 0, 0) };
-        // Camera and check mark from the Windows icon fonts.
-        stack.Children.Add(new TextBlock { Text = Received ? "\uE73E" : "\uE722", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 48, Foreground = Received ? Brushes.SeaGreen : Panels.Accent, HorizontalAlignment = HorizontalAlignment.Center });
-        stack.Children.Add(new TextBlock { Text = Received ? model.Text("已收进顶部托盘", "Collected in the tray") : model.Text("截一张试试", "Take a screenshot"), FontSize = 24, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 6) });
-        var detail = Panels.Dim(Received ? model.Text("拖到其他应用即可使用", "Drag it into any app") : model.Text("按 Win + Shift + S，框选任意区域", "Press Win + Shift + S and select any area"));
-        detail.HorizontalAlignment = HorizontalAlignment.Center; stack.Children.Add(detail);
+        // Warning, camera and check mark from the Windows icon fonts.
+        var icon = failed ? "\uE7BA" : Received ? "\uE73E" : "\uE722";
+        var title = failed ? model.Text("截图收纳失败", "Could not collect the screenshot")
+            : Received ? model.Text("已收进顶部托盘", "Collected in the tray") : model.Text("截一张试试", "Take a screenshot");
+        stack.Children.Add(new TextBlock { Text = icon, FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 48, Foreground = failed ? Brushes.DarkRed : Received ? Brushes.SeaGreen : Panels.Accent, HorizontalAlignment = HorizontalAlignment.Center });
+        stack.Children.Add(new TextBlock { Text = title, FontSize = 24, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 6) });
+        if (failed)
+        {
+            var error = Panels.Dim(model.LastCaptureError, 14);
+            error.Foreground = Brushes.DarkRed;
+            stack.Children.Add(new ScrollViewer { Content = error, MaxWidth = 460, MaxHeight = 94,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
+        }
+        else
+        {
+            var detail = Panels.Dim(Received ? model.Text("拖到其他应用即可使用", "Drag it into any app") : model.Text("按 Win + Shift + S，框选任意区域", "Press Win + Shift + S and select any area"));
+            detail.HorizontalAlignment = HorizontalAlignment.Center; stack.Children.Add(detail);
+        }
         return stack;
     }
     private StackPanel Usage()

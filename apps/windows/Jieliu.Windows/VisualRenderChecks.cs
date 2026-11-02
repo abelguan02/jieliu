@@ -19,6 +19,7 @@ internal static class VisualRenderChecks
     }
     public static void Run()
     {
+        OnboardingChecks.Run();
         LaunchAtLoginChecks.Run();
         ImageRegressionChecks.Run();
         TraySurface.RunPinChecks();
