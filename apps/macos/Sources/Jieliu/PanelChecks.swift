@@ -13,8 +13,11 @@ enum PanelChecks {
                 ("settings",AnyView(SettingsView(model:model) {}),360...620),
                 ("about",AnyView(AboutView(model:model) {}),420...640)
             ]
-            for page in 0..<4 { panels.append(("onboarding-\(page)",AnyView(OnboardingView(model:model,page:page,baseline:model.history.total,start:{},finish:{})),380...420)) }
-            panels.append(("onboarding-3-received",AnyView(OnboardingView(model:model,page:3,baseline:model.history.total-1,start:{},finish:{})),380...420))
+            for page in 0..<4 { panels.append(("onboarding-\(page)",AnyView(OnboardingView(model:model,page:page,baseline:model.history.total,finish:{})),380...420)) }
+            panels.append(("onboarding-3-received",AnyView(OnboardingView(model:model,page:3,baseline:model.history.total-1,finish:{})),380...420))
+            let errorModel=AppModel(demo:true,preferences:model.defaults)
+            errorModel.captureError=String(repeating:model.text("无法读取截图文件夹：访问被拒绝。","Could not read screenshot folder: access denied. "),count:12)
+            panels.append(("onboarding-3-error",AnyView(OnboardingView(model:errorModel,page:3,baseline:0,finish:{})),380...420))
             var onboardingHeights=Set<CGFloat>()
             for (name,view,heights) in panels {
                 let host=NSHostingView(rootView:view.background(Color(white:0.13)))

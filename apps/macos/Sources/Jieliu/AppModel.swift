@@ -34,6 +34,8 @@ final class AppModel: ObservableObject {
     var reduceMotion:()->Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     var motionEnabled:Bool { animations && !reduceMotion() }
     @Published var lastError = ""
+    @Published var captureError = ""
+    var errorMessage:String { captureError.isEmpty ? lastError : captureError }
     @Published var destination: URL
     var selection = Set<UUID>()
     var onChange: (() -> Void)?
@@ -65,6 +67,7 @@ final class AppModel: ObservableObject {
     }
 
     func receive(_ capture: Capture) {
+        captureError=""
         let result = history.insert(capture)
         guard result.status != .duplicate else { return }
         guard result.status != .full else {
@@ -120,7 +123,18 @@ final class AppModel: ObservableObject {
         panel.canCreateDirectories = true; panel.directoryURL = destination
         panel.prompt = text("用作截图文件夹","Use screenshot folder")
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        destination = url; defaults.set(url.path, forKey: "destination"); onRestart?(); onChange?()
+        setDestination(url)
+    }
+    func setDestination(_ url:URL) {
+        destination = url; defaults.set(url.path, forKey: "destination")
+        retryCollection(); onChange?()
+    }
+    func startCollecting() {
+        defaults.set(true,forKey:"onboarded"); retryCollection()
+    }
+    func retryCollection() {
+        guard defaults.bool(forKey:"onboarded") else { return }
+        captureError=""; onRestart?()
     }
     var folderLabel: String { destination.path.replacingOccurrences(of: NSHomeDirectory(), with: "~") }
     func text(_ chinese:String,_ english:String)->String { language == .chinese ? chinese : english }

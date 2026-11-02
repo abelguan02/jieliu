@@ -5,18 +5,21 @@ final class OnboardingFlow:ObservableObject {
     /// Collected total when collection started; a larger total means the trial capture arrived.
     @Published var baseline:Int?
     init(page:Int,baseline:Int?) { self.page=page; self.baseline=baseline }
+    func beginTrial(_ model:AppModel) {
+        baseline=model.history.total; model.startCollecting(); page=3
+    }
+    func returnToSetup() { page=2 }
 }
 
 struct OnboardingView:View {
     @ObservedObject var model:AppModel
-    var start:()->Void
     var finish:()->Void
     @StateObject private var state=SettingsState()
     @StateObject private var flow:OnboardingFlow
     private var page:Int { flow.page }
     private var received:Bool { flow.baseline.map { model.history.total>$0 } ?? false }
-    init(model:AppModel,page:Int=0,baseline:Int?=nil,start:@escaping ()->Void,finish:@escaping ()->Void) {
-        self.model=model; self.start=start; self.finish=finish
+    init(model:AppModel,page:Int=0,baseline:Int?=nil,finish:@escaping ()->Void) {
+        self.model=model; self.finish=finish
         _flow=StateObject(wrappedValue:OnboardingFlow(page:page,baseline:baseline))
     }
     var body:some View {
@@ -36,14 +39,16 @@ struct OnboardingView:View {
                     }
                 }
                 Spacer()
-                // Collection is already running on the trial page, so there is no way back.
+                if page == 3 && !model.captureError.isEmpty {
+                    Button(model.text("返回配置","Back to setup")) { flow.returnToSetup() }
+                }
                 if page>0 && page<3 { Button(model.text("上一步","Back")) { flow.page -= 1 } }
                 if page<2 {
                     Button(model.text("下一步","Continue")) { flow.page += 1 }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                 } else if page == 2 {
-                    Button(model.text("开始收纳","Start collecting")) { flow.baseline=model.history.total; start(); flow.page=3 }
+                    Button(model.text("开始收纳","Start collecting")) { flow.beginTrial(model) }
                         .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                } else if received {
+                } else if received && model.captureError.isEmpty {
                     Button(model.text("完成","Done"),action:finish).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                 } else {
                     Button(model.text("跳过","Skip"),action:finish)
@@ -67,11 +72,19 @@ struct OnboardingView:View {
 
     private var trial:some View {
         VStack(spacing:14) {
-            Image(systemName:received ? "checkmark.circle.fill" : "camera.viewfinder").font(.system(size:56,weight:.light))
-                .foregroundStyle(received ? Color.green : Color.cyan).padding(.top,40)
-            Text(received ? model.text("已收进顶部托盘","Collected in the tray") : model.text("截一张试试","Take a screenshot")).font(.system(size:24,weight:.semibold))
-            Text(received ? model.text("拖到其他 App 即可使用","Drag it into any app") : model.text("按 ⌘⇧4，框选任意区域","Press ⌘⇧4 and select any area")).foregroundStyle(.secondary)
-            if !received { ProgressView().controlSize(.small).padding(.top,8) }
+            if !model.captureError.isEmpty {
+                Image(systemName:"exclamationmark.triangle").font(.system(size:40,weight:.light)).foregroundStyle(.orange).padding(.top,20)
+                Text(model.text("截图收纳失败","Could not collect the screenshot")).font(.system(size:22,weight:.semibold))
+                ScrollView {
+                    Text(model.captureError).font(.system(size:13)).textSelection(.enabled).frame(maxWidth:.infinity,alignment:.leading)
+                }.frame(maxHeight:130)
+            } else {
+                Image(systemName:received ? "checkmark.circle.fill" : "camera.viewfinder").font(.system(size:56,weight:.light))
+                    .foregroundStyle(received ? Color.green : Color.cyan).padding(.top,40)
+                Text(received ? model.text("已收进顶部托盘","Collected in the tray") : model.text("截一张试试","Take a screenshot")).font(.system(size:24,weight:.semibold))
+                Text(received ? model.text("拖到其他 App 即可使用","Drag it into any app") : model.text("按 ⌘⇧4，框选任意区域","Press ⌘⇧4 and select any area")).foregroundStyle(.secondary)
+                if !received { ProgressView().controlSize(.small).padding(.top,8) }
+            }
         }
     }
 

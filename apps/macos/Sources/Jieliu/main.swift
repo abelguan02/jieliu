@@ -35,8 +35,11 @@ final class AppDelegate:NSObject,NSApplicationDelegate,NSMenuItemValidation {
     func startWatching() {
         watcher?.stop()
         let watcher=ScreenshotWatcher(destination:model.destination)
-        watcher.onCapture = { [weak self] in self?.model.receive($0) }
-        watcher.onError = { [weak self] message in self?.model.lastError=message; self?.status?.button?.toolTip="截留："+message }
+        watcher.onCapture = { [weak self] in
+            self?.model.receive($0)
+            self?.status?.button?.toolTip=self?.model.text("截留 · 截图收纳托盘","Jieliu · Screenshot tray")
+        }
+        watcher.onError = { [weak self] message in self?.model.captureError=message; self?.status?.button?.toolTip="截留："+message }
         self.watcher=watcher; watcher.start()
     }
     func setupMenu() {
@@ -76,10 +79,7 @@ final class AppDelegate:NSObject,NSApplicationDelegate,NSMenuItemValidation {
         about=present(about,title:model.text("关于截留","About Jieliu"),content:AboutView(model:model) { [weak self] in self?.showOnboarding() })
     }
     func showOnboarding() {
-        onboarding=present(onboarding,title:model.text("欢迎使用截留","Welcome to Jieliu"),content:OnboardingView(model:model,start:{ [weak self] in
-            guard let self else { return }
-            self.model.defaults.set(true,forKey:"onboarded"); self.startWatching()
-        },finish:{ [weak self] in self?.onboarding?.close(); self?.tray?.expand() }))
+        onboarding=present(onboarding,title:model.text("欢迎使用截留","Welcome to Jieliu"),content:OnboardingView(model:model,finish:{ [weak self] in self?.onboarding?.close(); self?.tray?.expand() }))
     }
     /// Reuses a visible window; a closed one is rebuilt so it reflects the current state.
     private func present(_ existing:NSWindow?,title:String,content:some View)->NSWindow {

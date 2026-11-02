@@ -53,11 +53,11 @@ struct SettingsView:View {
                 Toggle(model.text("界面动效","Interface animations"),isOn:$model.animations)
                 Toggle(model.text("登录时启动","Launch at login"),isOn:Binding(get:{ state.launchAtLogin },set:{ state.setLaunchAtLogin($0,model) }))
             }
-            if !model.lastError.isEmpty || !state.localError.isEmpty {
-                Text(state.localError.isEmpty ? model.lastError : state.localError).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+            if !model.errorMessage.isEmpty || !state.localError.isEmpty {
+                Text(state.localError.isEmpty ? model.errorMessage : state.localError).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
                 Button(model.text("重新请求目录访问并重试","Allow folder access and retry")) {
                     let panel=NSOpenPanel(); panel.canChooseFiles=false; panel.canChooseDirectories=true; panel.directoryURL=URL(fileURLWithPath:NSHomeDirectory()+"/Desktop"); panel.message=model.text("请选择系统截图保存目录（通常为桌面），允许截留读取新截图。","Choose your system screenshot folder (usually Desktop) to allow access to new screenshots.")
-                    if panel.runModal() == .OK { model.lastError=""; model.onRestart?() }
+                    if panel.runModal() == .OK { model.retryCollection() }
                 }
             }
             Divider()

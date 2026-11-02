@@ -19,6 +19,7 @@ enum OffscreenChecks {
         model.reduceMotion={false}
         AlignmentChecks.run(model)
         ReviewRegressionChecks.run(model)
+        OnboardingChecks.run(root:root)
         PanelChecks.run(model)
         try CaptureInputChecks.run(root:root,preferences:defaults)
         try CaptureRegressionChecks.run(root:root,preferences:defaults)
