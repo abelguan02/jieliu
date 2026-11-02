@@ -5,6 +5,7 @@ app="${APP_OUTPUT:-$PWD/dist/截留.app}"
 test -x "$app/Contents/MacOS/Jieliu"
 version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")
 [[ "$version" =~ ^[0-9]+[.][0-9]+[.][0-9]+$ ]] || exit 2
+mkdir -p dist
 stage=$(mktemp -d "${TMPDIR:-/tmp}/jieliu-local.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 ditto "$app" "$stage/截留.app"

@@ -7,6 +7,7 @@ configuration="${CONFIGURATION:-release}"
 app="${APP_OUTPUT:-$PWD/dist/截留.app}"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 if [[ "${UNIVERSAL:-0}" == 1 ]]; then
+    mkdir -p dist
     for architecture in arm64 x86_64; do
         swift build --disable-sandbox --cache-path .build/cache --scratch-path ".build/$architecture" -c "$configuration" --arch "$architecture" --product Jieliu
         binary_dir=$(swift build --disable-sandbox --cache-path .build/cache --scratch-path ".build/$architecture" -c "$configuration" --arch "$architecture" --show-bin-path)
