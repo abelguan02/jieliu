@@ -3,7 +3,6 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using Forms = System.Windows.Forms;
 
 namespace Jieliu.Windows;
 
@@ -12,9 +11,10 @@ internal sealed class SettingsWindow : Window
     private readonly Model model;
     private TextBlock? error;
     private LaunchAtLoginControl? launchAtLogin;
-    public SettingsWindow(Model model)
+    private readonly Action about;
+    public SettingsWindow(Model model, Action about)
     {
-        this.model = model;
+        this.model = model; this.about = about;
         Width = 550; Height = 640; MinWidth = 450; MinHeight = 400;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         model.Changed += UpdateError;
@@ -37,9 +37,7 @@ internal sealed class SettingsWindow : Window
         entry.SelectionChanged += (_, _) => { model.Settings.MenuOnly = entry.SelectedIndex == 1; model.SavePreferences(); Render(); };
         stack.Children.Add(entry);
         Label("展开样式", "Expanded appearance");
-        var style = new ComboBox { ItemsSource = new[] { model.Text("A · 标尺", "A · Ruler"), model.Text("B · 帧缓冲", "B · Buffer"), model.Text("C · 图层", "C · Layers") }, SelectedIndex = model.Settings.Style[0] - 'A' };
-        style.SelectionChanged += (_, _) => { model.Settings.Style = ((char)('A' + style.SelectedIndex)).ToString(); model.SavePreferences(); };
-        stack.Children.Add(style);
+        stack.Children.Add(Panels.Styles(model));
         var auto = new CheckBox { Content = model.Text("鼠标离开后自动收起", "Collapse after pointer leaves"), IsChecked = model.Settings.AutoHide || model.Settings.MenuOnly, IsEnabled = !model.Settings.MenuOnly, Margin = new Thickness(0, 16, 0, 0) };
         auto.Click += (_, _) => { model.Settings.AutoHide = auto.IsChecked == true; model.SavePreferences(); }; stack.Children.Add(auto);
         var animations = new CheckBox { Content = model.Text("界面动效", "Interface animations"), IsChecked = model.Settings.Animations, Margin = new Thickness(0, 14, 0, 0) };
@@ -49,9 +47,9 @@ internal sealed class SettingsWindow : Window
         launchAtLogin = new LaunchAtLoginControl(new RunLaunchAtLogin(model.Text), model.Text);
         stack.Children.Add(launchAtLogin);
         Label("截图接入文件夹", "Screenshot input folder");
-        Folder(stack, model.Settings.Source, path => model.Settings.Source = path);
+        stack.Children.Add(Panels.Folder(model, model.Settings.Source, path => model.Settings.Source = path, Render));
         Label("保存文件夹", "Archive folder");
-        Folder(stack, model.Settings.Destination, path => model.Settings.Destination = path);
+        stack.Children.Add(Panels.Folder(model, model.Settings.Destination, path => model.Settings.Destination = path, Render));
         error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DarkRed, Margin = new Thickness(0, 18, 0, 0) }; stack.Children.Add(error); UpdateError();
         var diagnostics = new Button { Content = model.Text("导出动效诊断…", "Export animation diagnostics…"), Margin = new Thickness(0, 16, 0, 0), Padding = new Thickness(8) };
         diagnostics.Click += (_, _) =>
@@ -62,18 +60,8 @@ internal sealed class SettingsWindow : Window
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { model.Error(ex.Message); }
         };
         stack.Children.Add(diagnostics);
-    }
-    private void Folder(StackPanel stack, string path, Action<string> set)
-    {
-        var button = new Button { Content = path, Padding = new Thickness(8), HorizontalContentAlignment = HorizontalAlignment.Left };
-        button.Click += (_, _) =>
-        {
-            using var picker = new Forms.FolderBrowserDialog { SelectedPath = path, UseDescriptionForTitle = true, Description = model.Text("选择文件夹", "Choose folder") };
-            if (picker.ShowDialog() != Forms.DialogResult.OK) return;
-            try { Directory.CreateDirectory(picker.SelectedPath); set(picker.SelectedPath); model.SavePreferences(); Render(); }
-            catch (Exception ex) { model.Error(ex.Message); }
-        };
-        stack.Children.Add(button);
+        var link = Panels.Link(model.Text("关于截留", "About Jieliu"), about); link.Margin = new Thickness(0, 20, 0, 0);
+        stack.Children.Add(link);
     }
     private void UpdateError() { if (error is not null) error.Text = model.LastError; }
 }

@@ -21,6 +21,9 @@ fi
 cp apps/macos/Resources/Info.plist "$app/Contents/Info.plist"
 base64 -D -i apps/macos/Resources/GeistMono-Medium.ttf.b64 -o "$app/Contents/Resources/GeistMono-Medium.ttf"
 cp apps/macos/Resources/Geist-OFL.txt "$app/Contents/Resources/Geist-OFL.txt"
+for code in Donate-WeChat Donate-Alipay; do
+    if [[ -f "apps/macos/Resources/$code.png" ]]; then cp "apps/macos/Resources/$code.png" "$app/Contents/Resources/$code.png"; fi
+done
 # Replacing a previously signed executable invalidates the old bundle seal.
 # Sign the intermediate bundle before running its icon renderer, then seal again.
 codesign --force --sign - "$app"

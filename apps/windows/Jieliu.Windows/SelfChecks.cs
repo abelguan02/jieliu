@@ -21,6 +21,29 @@ internal static class SelfChecks
         {
             var model = new Model(root);
             Check(!model.Settings.English && !model.Settings.MenuOnly && model.Settings.Style == "B", "Unexpected defaults");
+            Check(model.Settings.Onboarded == false, "New install skips onboarding");
+            var upgraded = Path.Combine(root, "upgraded"); Directory.CreateDirectory(upgraded);
+            File.WriteAllText(Path.Combine(upgraded, "settings.json"), "{\"Style\":\"A\"}");
+            Check(new Model(upgraded).Settings.Onboarded == true, "Existing settings must not show onboarding again");
+            foreach (var english in new[] { false, true })
+            {
+                model.Settings.English = english;
+                var about = new AboutWindow(model, () => { });
+                var aboutContent = (FrameworkElement)about.Content;
+                aboutContent.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                Check(aboutContent.DesiredSize.Width <= 460 && aboutContent.DesiredSize.Height <= 680, "About panel too large");
+                about.Close();
+                for (var page = 0; page < 5; page++)
+                {
+                    // Page 4 is the trial page after a capture has arrived.
+                    var guide = new OnboardingWindow(model, () => { }, () => { }, Math.Min(page, 3), page == 4 ? model.History.Total - 1 : model.History.Total);
+                    var content = (FrameworkElement)guide.Content;
+                    content.Measure(new Size(524, 401));
+                    Check(content.DesiredSize.Height <= 401, "Onboarding page " + page + " overflows");
+                    guide.Close();
+                }
+            }
+            model.Settings.English = false;
             var pixels = new byte[64 * 32 * 4];
             for (var i = 0; i < pixels.Length; i += 4) { pixels[i] = 225; pixels[i + 1] = 120; pixels[i + 2] = 50; pixels[i + 3] = 255; }
             var fixture = BitmapSource.Create(64, 32, 96, 96, PixelFormats.Bgra32, null, pixels, 64 * 4);
@@ -61,7 +84,7 @@ internal static class SelfChecks
                 panel.Expand(true); Check(panel.IsVisible && GetForegroundWindow() == foreground, "Automatic panel steals focus");
             }
             finally { panel.Close(); }
-            Console.WriteLine("PASS: WPF render A/B/C, distinct animation frames, default settings, persistence, deletion preserves file, hidden entry and nonactivating presentation");
+            Console.WriteLine("PASS: onboarding defaults/upgrade, about, onboarding and trial layout, WPF render A/B/C, distinct animation frames, default settings, persistence, deletion preserves file, hidden entry and nonactivating presentation");
         }
         finally { Directory.Delete(root, true); }
     }

@@ -16,6 +16,8 @@ public sealed class Preferences
     public bool Animations { get; set; } = true;
     public string Source { get; set; } = Native.Screenshots();
     public string Destination { get; set; } = Native.Screenshots();
+    /// <summary>Null in settings written before onboarding existed; those users are not shown it again.</summary>
+    public bool? Onboarded { get; set; }
 }
 
 public sealed class Model
@@ -38,7 +40,9 @@ public sealed class Model
         folder = storage ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Jieliu");
         try
         {
-            Settings = JsonStore.Read<Preferences>(Path.Combine(folder, "settings.json")) ?? new();
+            var path = Path.Combine(folder, "settings.json");
+            Settings = JsonStore.Read<Preferences>(path) ?? new();
+            Settings.Onboarded ??= File.Exists(path);
             if (!new[] { "A", "B", "C" }.Contains(Settings.Style)) Settings.Style = "B";
             if (string.IsNullOrWhiteSpace(Settings.Source)) Settings.Source = Native.Screenshots();
             if (string.IsNullOrWhiteSpace(Settings.Destination)) Settings.Destination = Native.Screenshots();
